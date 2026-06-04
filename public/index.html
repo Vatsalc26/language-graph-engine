@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Language Graph Engine</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>Language Graph Engine</h1>
+            <div class="subtitle">Phase 1: Lowercase Latin Alphabet Collection</div>
+        </header>
+
+        <!-- Active Snapshot Summary -->
+        <section class="card" id="snapshot-summary">
+            <div class="card-title">
+                Active Snapshot Summary
+            </div>
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="status-label">Collection Name</span>
+                    <span class="status-value" id="collection-name">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Active Snapshot CID</span>
+                    <span class="status-value">
+                        <span class="cid-badge" id="snapshot-cid" onclick="copyText(this.innerText)">Loading...</span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Identifier Format</span>
+                    <span class="status-value" id="identifier-format">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Number of Symbols</span>
+                    <span class="status-value" id="symbol-count">Loading...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Workspace: Resolver & Registry Side-by-Side/Stack -->
+        <div class="grid-2">
+            <!-- Resolve Input Card -->
+            <section class="card">
+                <div class="card-title">Resolve Input</div>
+                <div class="form-group">
+                    <label for="resolve-input" style="font-size: 0.95rem; color: var(--text-secondary);">
+                        Resolve lowercase text from the active alphabet snapshot
+                    </label>
+                    <textarea id="resolve-input" placeholder="Type lowercase letters, for example: vatsal" oninput="clearError()"></textarea>
+                    <button class="btn" id="resolve-btn" onclick="resolveInput()">Resolve</button>
+                </div>
+                
+                <!-- Error Notice -->
+                <div class="validation-error" id="error-notice"></div>
+
+                <!-- Resolution Trace Result -->
+                <div id="resolution-result" style="display: none; margin-top: 1.5rem;">
+                    <div style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
+                        <div><strong>Input:</strong> <span id="res-input-text"></span></div>
+                        <div><strong>Output:</strong> <span id="res-output-text"></span></div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                            <strong>Collection Snapshot CID:</strong> <span id="res-snap-cid" style="font-family: monospace;"></span>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Position</th>
+                                    <th>Input Grapheme</th>
+                                    <th>Entity ID</th>
+                                    <th>Revision CID</th>
+                                    <th>Surface Form</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resolution-trace-body">
+                                <!-- Trace lines injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Symbol Registry Card -->
+            <section class="card">
+                <div class="card-title">Symbol Registry</div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Position</th>
+                                <th>Surface Form</th>
+                                <th>Canonical Entity ID</th>
+                                <th>Active Revision CID</th>
+                                <th>Normalization</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="symbol-registry-body">
+                            <!-- 26 items injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- Immutable Object Details (Expandable Pane) -->
+        <section class="card" id="details-section" style="display: none;">
+            <div class="card-title">Immutable Object Details</div>
+            
+            <div class="detail-panel" id="grapheme-detail-panel" style="display: flex;">
+                <div class="detail-header">
+                    <h3 id="detail-object-title">Symbol Revision Details</h3>
+                    <button class="close-detail" onclick="closeDetails()">&times;</button>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-row">
+                        <span>Stable Entity ID</span>
+                        <span id="det-entity-id"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Revision CID</span>
+                        <span id="det-revision-cid"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Surface Form</span>
+                        <span id="det-surface-form"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Normalized Form</span>
+                        <span id="det-normalized-form"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Unicode Scalar</span>
+                        <span id="det-unicode-scalar"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Script</span>
+                        <span id="det-script"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Case</span>
+                        <span id="det-case"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Codec</span>
+                        <span id="det-codec"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Multihash Format</span>
+                        <span id="det-multihash"></span>
+                    </div>
+                </div>
+                <pre id="det-raw-json"></pre>
+            </div>
+        </section>
+    </div>
+
+    <!-- UI Logic Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
