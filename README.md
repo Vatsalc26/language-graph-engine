@@ -21,8 +21,21 @@ The long-term vision of this engine is to provide a durable local storage layer 
 ### Why digits and punctuation are separate collections
 Instead of dumping digits and punctuation into a single "alphabet" collection, they are represented as distinct immutable collections (`urn:language-graph:collection:decimal-digits-0-9` and `urn:language-graph:collection:basic-english-punctuation`). This models the linguistic boundary between alphabetic characters, numerical symbols, and typographic separators, allowing future profiles (such as numeric-only or specific language profiles) to reuse them independently.
 
-### Explicitly unsupported in Phase 2
-Smart quotes (`’`, `“`, `”`), typographic dashes (`–`, `—`), ellipses (`…`), accented letters (e.g. `é`), combining characters (e.g. `á`), emoji, and non-ASCII scripts are rejected with descriptive validation errors. This maintains strict bounds on text formatting and ensures input sanitization is deterministic.
+### Supported ASCII Characters (Phase 2.1)
+* All 95 printable ASCII characters from U+0020 SPACE through U+007E TILDE inclusive are supported.
+* ASCII printable operator-like characters are supported, including: `+ - * / = < > % ^ & |`
+* The ASCII backslash `\` is supported.
+
+### Explicitly Unsupported Inputs
+Unsupported inputs include non-ASCII typography and layout controls, such as:
+* Layout controls: tabs (`\t`), newlines (`\n`), carriage returns (`\r`).
+* Smart quotes: `’`, `“`, `”`.
+* Typographic dashes: `–`, `—`.
+* Ellipsis: `…`.
+* Non-ASCII mathematical symbols: `×`, `÷`, `−`, `≤`, `≥`, `≠`.
+* Accented letters and combining graphemes (e.g. `é`, `á`).
+* Emoji and other scripts.
+
 
 ---
 
@@ -40,11 +53,10 @@ Our architecture separates stable identity from immutable content:
    * *Example*: `bafyreidfdj3hw7gv5rt7bpsfkrkhuptprcjlwzpaq3yektnztec4caqdn4`
 
 ### Seeding Guarantees
-Seeding is idempotent and transactional. Re-running the database initialization:
-* Never alters Phase 1 blocks or CIDs.
-* Never generates duplicate blocks or entities.
-* Fails with a controlled integrity error if there are conflicting entities or heads.
-* Rolls back atomically if any step fails, leaving the database unmodified.
+* Phase 2.1 supplemental symbol/profile additions are transactional.
+* If Phase 2.1 additions fail, no partial Phase 2.1 active profile is left behind.
+* When bootstrapping from an earlier or empty database, prerequisite Phase 1/Phase 2 initialization may already have been committed before a Phase 2.1-specific failure.
+* Existing deterministic identity blocks are never silently overwritten.
 
 ### High Performance & Read-Only Resolution
 * **In-Memory Caching**: On startup, the active profile snapshot is loaded into a flat 95-symbol cache.
@@ -109,5 +121,8 @@ Phase 3 adds a separate, logical live store: `urn:language-graph:store:english-n
   * Technical tokens, identifiers, numeric forms, emails, and URLs are rejected from this store (though still fully resolvable in the Printable ASCII profile).
 
 ### Roadmap
-* **Phase 3**: Persistent English Words store, composition previews, live retrieval, and manual publication.
-* **Phase 4**: Meanings, definitions, semantic annotations, sentences, and vector embeddings.
+* **Phase 3: Persistent Written Forms**
+  Creates stored written-form objects composed from existing symbol revision CIDs. (No meanings, dictionaries, lexemes, sentences, embeddings or AI are added here).
+* **Phase 4: Lexemes and Senses / Meanings**
+* **Phase 5: Source Text, Sentences and Contextual Occurrences**
+* **Later: Interpretation, retrieval ranking and optional semantic/AI layers**

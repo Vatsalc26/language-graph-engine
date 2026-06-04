@@ -492,3 +492,366 @@ fn test_regression_phase2_1_specific_examples() {
         assert_eq!(res.output, input);
     }
 }
+
+fn get_db_counts(c: &Connection) -> (i64, i64, i64, i64, i64, i64) {
+    let blocks: i64 = c
+        .query_row("SELECT COUNT(*) FROM immutable_blocks", [], |r| r.get(0))
+        .unwrap();
+    let entities: i64 = c
+        .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
+        .unwrap();
+    let heads: i64 = c
+        .query_row("SELECT COUNT(*) FROM entity_heads", [], |r| r.get(0))
+        .unwrap();
+    let profiles: i64 = c
+        .query_row("SELECT COUNT(*) FROM text_profiles", [], |r| r.get(0))
+        .unwrap();
+    let profile_snaps: i64 = c
+        .query_row("SELECT COUNT(*) FROM text_profile_snapshots", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let active_snaps: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM active_text_profile_snapshots",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    (
+        blocks,
+        entities,
+        heads,
+        profiles,
+        profile_snaps,
+        active_snaps,
+    )
+}
+
+#[test]
+fn test_regression_phase2_1_keyboard_resolution() {
+    let mut conn = get_temp_db();
+    seed_phase2_1(&mut conn).unwrap();
+
+    let resolver = TextResolver::load(&conn).unwrap();
+    assert_eq!(resolver.cache.len(), 95);
+
+    let specific_cases = vec![
+        r"path\to\file",
+        "3+4=7",
+        "C++ >= C?",
+        "email@example.com",
+        "array[0]",
+        r#"{status: "ok"}"#,
+        "price=$25.00",
+        "cats & dogs",
+        "https://example.com/path?x=1&y=2",
+    ];
+
+    use unicode_segmentation::UnicodeSegmentation;
+
+    for input in specific_cases {
+        let counts_before = get_db_counts(&conn);
+        let res = resolver.resolve(input).unwrap();
+        let counts_after = get_db_counts(&conn);
+
+        assert_eq!(res.input, input);
+        assert_eq!(res.output, input);
+        assert_eq!(res.collection_snapshot_cid, GOLDEN_PROFILE_2_1_SNAP_CID);
+        assert_eq!(res.trace.len(), input.graphemes(true).count());
+        assert_eq!(
+            counts_before, counts_after,
+            "Normal resolution must perform no database writes"
+        );
+    }
+}
+
+#[test]
+fn test_rejection_unicode_operator_counterparts() {
+    let mut conn = get_temp_db();
+    seed_phase2_1(&mut conn).unwrap();
+
+    let resolver = TextResolver::load(&conn).unwrap();
+
+    let invalid_inputs = vec![
+        (
+            "3 × 4 = 12",
+            vec!["× U+00D7 UNSUPPORTED SYMBOL at position 3"],
+        ),
+        (
+            "12 ÷ 3 = 4",
+            vec!["÷ U+00F7 UNSUPPORTED SYMBOL at position 4"],
+        ),
+        (
+            "10 − 2 = 8",
+            vec!["− U+2212 UNSUPPORTED SYMBOL at position 4"],
+        ),
+        ("x ≤ 5", vec!["≤ U+2264 UNSUPPORTED SYMBOL at position 3"]),
+        ("x ≥ 5", vec!["≥ U+2265 UNSUPPORTED SYMBOL at position 3"]),
+        ("x ≠ y", vec!["≠ U+2260 UNSUPPORTED SYMBOL at position 3"]),
+        (
+            "It’s working…",
+            vec![
+                "’ U+2019 RIGHT SINGLE QUOTATION MARK at position 3",
+                "… U+2026 HORIZONTAL ELLIPSIS at position 13",
+            ],
+        ),
+        (
+            "“Hello”",
+            vec![
+                "“ U+201C LEFT DOUBLE QUOTATION MARK at position 1",
+                "” U+201D RIGHT DOUBLE QUOTATION MARK at position 7",
+            ],
+        ),
+        ("Hello—world", vec!["— U+2014 EM DASH at position 6"]),
+        ("line1\nline2", vec!["\n U+000A NEWLINE at position 6"]),
+        ("tab\tvalue", vec!["\t U+0009 TAB at position 4"]),
+    ];
+
+    for (input, expected_err_parts) in invalid_inputs {
+        let counts_before = get_db_counts(&conn);
+        let res = resolver.resolve(input);
+        let counts_after = get_db_counts(&conn);
+
+        assert!(res.is_err(), "Input should be rejected: {}", input);
+        assert_eq!(
+            counts_before, counts_after,
+            "Normal resolution must perform no database writes on error"
+        );
+
+        let err_msg = res.unwrap_err().to_string();
+        for part in expected_err_parts {
+            assert!(
+                err_msg.to_lowercase().contains(&part.to_lowercase()),
+                "Error msg: '{}' missing expected part: '{}'",
+                err_msg,
+                part
+            );
+        }
+    }
+}
+
+#[test]
+fn test_full_printable_ascii_profile_coverage() {
+    let mut conn = get_temp_db();
+    seed_phase2_1(&mut conn).unwrap();
+
+    let resolver = TextResolver::load(&conn).unwrap();
+    assert_eq!(resolver.cache.len(), 95);
+
+    // Build the string containing all 95 printable ASCII characters
+    let mut all_chars = String::new();
+    for code in 0x20..=0x7E {
+        all_chars.push(code as u8 as char);
+    }
+    assert_eq!(all_chars.len(), 95);
+
+    // Resolve through active Printable ASCII profile
+    let res = resolver.resolve(&all_chars).unwrap();
+    assert_eq!(res.input, all_chars);
+    assert_eq!(res.output, all_chars);
+    assert_eq!(res.collection_snapshot_cid, GOLDEN_PROFILE_2_1_SNAP_CID);
+
+    // Verify cache has exactly 95 supported symbols
+    for code in 0x20..=0x7E {
+        let ch = code as u8 as char;
+        let s = ch.to_string();
+        assert!(
+            resolver.cache.contains_key(&s),
+            "Missing char in cache: {}",
+            s
+        );
+    }
+
+    // Verify no extra unsupported scalar is present
+    for key in resolver.cache.keys() {
+        assert_eq!(key.len(), 1, "Cache key must be single grapheme");
+        let ch = key.chars().next().unwrap();
+        assert!(
+            ('\u{0020}'..='\u{007E}').contains(&ch),
+            "Extra char in cache: {}",
+            ch
+        );
+    }
+}
+
+#[test]
+fn test_supplemental_symbols_golden_vectors() {
+    let mut conn = get_temp_db();
+    let seeded_profile_cid = seed_phase2_1(&mut conn).unwrap();
+
+    // Verify Golden CIDs of the snapshots
+    assert_eq!(seeded_profile_cid, GOLDEN_PROFILE_2_1_SNAP_CID);
+
+    let repo = Repository::new(&conn);
+
+    let active_low_snap = repo.get_active_snapshot_cid(LOW_COL_ID).unwrap().unwrap();
+    assert_eq!(active_low_snap, GOLDEN_LOW_SNAP_CID);
+
+    let active_p2_snap = repo
+        .get_active_profile_snapshot_cid(PROFILE_2_ENTITY_ID)
+        .unwrap()
+        .unwrap();
+    assert_eq!(active_p2_snap, GOLDEN_PROFILE_2_SNAP_CID);
+
+    let active_supp_snap = repo
+        .get_active_snapshot_cid(SUPPLEMENTAL_COLLECTION_ENTITY_ID)
+        .unwrap()
+        .unwrap();
+    assert_eq!(active_supp_snap, GOLDEN_SUPPLEMENTAL_SNAP_CID);
+
+    let active_p2_1_snap = repo
+        .get_active_profile_snapshot_cid(PROFILE_2_1_ENTITY_ID)
+        .unwrap()
+        .unwrap();
+    assert_eq!(active_p2_1_snap, GOLDEN_PROFILE_2_1_SNAP_CID);
+
+    // Verify detailed golden vectors for all 21 supplemental symbols
+    let golden_table = vec![
+        (
+            '#',
+            "U+0023",
+            "urn:language-graph:grapheme:nfc:0023",
+            "bafyreiajj25zb3zic6pcu7655fsk4a7mvclwgiof3i44eovx2zxodioo7m",
+        ),
+        (
+            '$',
+            "U+0024",
+            "urn:language-graph:grapheme:nfc:0024",
+            "bafyreidh4oihmqyykdz7dwsvy4yndkg7ihw4hf3jcn3h2z46fqr5pldznu",
+        ),
+        (
+            '%',
+            "U+0025",
+            "urn:language-graph:grapheme:nfc:0025",
+            "bafyreiaovyhckcdgqs2rm34efe7vk6az6gwrijcxhshl4csebixtddwldu",
+        ),
+        (
+            '&',
+            "U+0026",
+            "urn:language-graph:grapheme:nfc:0026",
+            "bafyreie5cqbgjq2ydtstpanskr345or64evwksv66thzlqgml6eqbqeplq",
+        ),
+        (
+            '*',
+            "U+002A",
+            "urn:language-graph:grapheme:nfc:002a",
+            "bafyreiaooo3tczirtiqwhn47tnqkxbqn676zjdi4awjcdcelsoyva3x4ly",
+        ),
+        (
+            '+',
+            "U+002B",
+            "urn:language-graph:grapheme:nfc:002b",
+            "bafyreicdelciki475m5awn356ur6halwtfcln445h4qvjti775vej52yga",
+        ),
+        (
+            '/',
+            "U+002F",
+            "urn:language-graph:grapheme:nfc:002f",
+            "bafyreiftsuulldo5xivjmrecy2reta7vni3yg42ux427ktgetb6djiq5hm",
+        ),
+        (
+            '<',
+            "U+003C",
+            "urn:language-graph:grapheme:nfc:003c",
+            "bafyreiff3ae6gibn2nfl4eu5abnlglnwbvinysn6ntdj5mcygu77v5tlwi",
+        ),
+        (
+            '=',
+            "U+003D",
+            "urn:language-graph:grapheme:nfc:003d",
+            "bafyreig4vzvzckmikxapd37f2fce7leqedjht5cp6egn5z67po3ded7t5m",
+        ),
+        (
+            '>',
+            "U+003E",
+            "urn:language-graph:grapheme:nfc:003e",
+            "bafyreihdwvqwdmlmvijsw556bfnlr2ltzrvwnxbpfbiyd7c3d7y5jcmkzq",
+        ),
+        (
+            '@',
+            "U+0040",
+            "urn:language-graph:grapheme:nfc:0040",
+            "bafyreidxoor5oz3sj3jltaf7sfdttpkooacy7cmnh2ipaiqvcyrt54skd4",
+        ),
+        (
+            '[',
+            "U+005B",
+            "urn:language-graph:grapheme:nfc:005b",
+            "bafyreihccfu5mvgpkjzxumxhppso7mavh7cwkbbbg7mmuvjxbybt456u3q",
+        ),
+        (
+            '\\',
+            "U+005C",
+            "urn:language-graph:grapheme:nfc:005c",
+            "bafyreigsg5oxzm26o4v35tpamxbbg2xrgc65a32x44zxpawxyqssata6cm",
+        ),
+        (
+            ']',
+            "U+005D",
+            "urn:language-graph:grapheme:nfc:005d",
+            "bafyreibca6kx7wib4t3qkz5xxhxn6rekkjgdqs3a63myycqopiwovn5cmq",
+        ),
+        (
+            '^',
+            "U+005E",
+            "urn:language-graph:grapheme:nfc:005e",
+            "bafyreifeuinqwbpfyclxihqr6xsmyzaudlj3b27wikwxvjdpnxax5uxyiu",
+        ),
+        (
+            '_',
+            "U+005F",
+            "urn:language-graph:grapheme:nfc:005f",
+            "bafyreidl25gy5bawxpcgzdm2i2omdt4m5kgbhoptoie35fse2mkep74ebi",
+        ),
+        (
+            '`',
+            "U+0060",
+            "urn:language-graph:grapheme:nfc:0060",
+            "bafyreibvmqwgeanqyomvln2zs2ixjw2jystszzpccukyzcz433nsdmyvke",
+        ),
+        (
+            '{',
+            "U+007B",
+            "urn:language-graph:grapheme:nfc:007b",
+            "bafyreib3hl3wjd3la7r2eu7u72beoocelb64l73uslzgk6dlszzowyotvy",
+        ),
+        (
+            '|',
+            "U+007C",
+            "urn:language-graph:grapheme:nfc:007c",
+            "bafyreicbi3yy7ilvg4wr3j6m33udppwuddimecocphqy26z44pnwop2cle",
+        ),
+        (
+            '}',
+            "U+007D",
+            "urn:language-graph:grapheme:nfc:007d",
+            "bafyreidcqbeft3st5w4w4cngn5bnrceok6fumpdmovudeqzxdstnumefbm",
+        ),
+        (
+            '~',
+            "U+007E",
+            "urn:language-graph:grapheme:nfc:007e",
+            "bafyreicx2xpvp2d4gzijs7q3irpd56ymjooalnyzwvkpypaeblzkoken4e",
+        ),
+    ];
+
+    let supp_snap_members = repo.get_snapshot_members(&active_supp_snap).unwrap();
+    assert_eq!(supp_snap_members.len(), 21);
+
+    for (i, &(ch, scalar, entity_id, revision_cid)) in golden_table.iter().enumerate() {
+        // Assert collection membership details
+        let member = &supp_snap_members[i];
+        assert_eq!(member.position, (i + 1) as i32);
+        assert_eq!(member.entity_id, entity_id);
+        assert_eq!(member.revision_cid, revision_cid);
+
+        // Fetch grapheme revision block details
+        let rev = repo.get_grapheme_revision(revision_cid).unwrap();
+        assert_eq!(rev.surface_form, ch.to_string());
+        assert_eq!(rev.entity_id, entity_id);
+        assert_eq!(rev.unicode_scalars, vec![scalar.to_string()]);
+        assert_eq!(rev.script, "Common");
+        assert_eq!(rev.case, "none");
+    }
+}
