@@ -274,6 +274,177 @@ fn bench_resolver_ops(c: &mut Criterion) {
             assert!(!res.snapshot_cid.is_empty());
         })
     });
+
+    // --- Phase 3.1 Lexicon Import Benchmarks ---
+
+    // 18. Dry-run classification of a small fixture
+    let small_fixture = b"bank\ncan't\nmother-in-law\ncaf\xc3\xa9\nice cream\nCOVID-19\n";
+    c.bench_function("import_dry_run_classification_small_fixture", |b| {
+        b.iter(|| {
+            let res = language_graph_engine::lexicon_import::importer::analyze_esdb_file(
+                &conn_save,
+                small_fixture,
+                None,
+            )
+            .unwrap();
+            assert_eq!(res.entries_read, 6);
+        })
+    });
+
+    // 19. Bulk import of 1,000 generated eligible words
+    let fixture_1k = generate_synthetic_wordlist(1000);
+    c.bench_function("import_bulk_1k_words", |b| {
+        b.iter_with_setup(
+            || {
+                let mut conn_temp = Connection::open_in_memory().unwrap();
+                run_migrations(&conn_temp).unwrap();
+                seed_phase2_1(&mut conn_temp).unwrap();
+                let resolver_temp = TextResolver::load(&conn_temp).unwrap();
+                (conn_temp, resolver_temp)
+            },
+            |(mut conn_temp, resolver_temp)| {
+                let res = language_graph_engine::lexicon_import::importer::import_eligible_words(
+                    &mut conn_temp,
+                    &resolver_temp,
+                    &fixture_1k,
+                    None,
+                )
+                .unwrap();
+                assert_eq!(res.eligible_new_words, 1000);
+            },
+        )
+    });
+
+    // 20. Bulk import of a larger synthetic inventory approximating 100,000 candidates
+    let mut group = c.benchmark_group("lexicon_import");
+    group.sample_size(10);
+    let fixture_100k = generate_synthetic_wordlist(100000);
+    group.bench_function("import_bulk_100k_words", |b| {
+        b.iter_with_setup(
+            || {
+                let mut conn_temp = Connection::open_in_memory().unwrap();
+                run_migrations(&conn_temp).unwrap();
+                seed_phase2_1(&mut conn_temp).unwrap();
+                let resolver_temp = TextResolver::load(&conn_temp).unwrap();
+                (conn_temp, resolver_temp)
+            },
+            |(mut conn_temp, resolver_temp)| {
+                let res = language_graph_engine::lexicon_import::importer::import_eligible_words(
+                    &mut conn_temp,
+                    &resolver_temp,
+                    &fixture_100k,
+                    None,
+                )
+                .unwrap();
+                assert_eq!(res.eligible_new_words, 100000);
+            },
+        )
+    });
+
+    // 21. Re-import/idempotency path where all words already exist
+    let mut conn_idem = Connection::open_in_memory().unwrap();
+    run_migrations(&conn_idem).unwrap();
+    seed_phase2_1(&mut conn_idem).unwrap();
+    let resolver_idem = TextResolver::load(&conn_idem).unwrap();
+    let fixture_idem = generate_synthetic_wordlist(1000);
+    language_graph_engine::lexicon_import::importer::import_eligible_words(
+        &mut conn_idem,
+        &resolver_idem,
+        &fixture_idem,
+        None,
+    )
+    .unwrap();
+    group.bench_function("import_idem_1k_words_already_exist", |b| {
+        b.iter(|| {
+            let res = language_graph_engine::lexicon_import::importer::import_eligible_words(
+                &mut conn_idem,
+                &resolver_idem,
+                &fixture_idem,
+                None,
+            )
+            .unwrap();
+            assert_eq!(res.eligible_new_words, 0);
+        })
+    });
+
+    // 22. Indexed exact lookup after a large import (10k words)
+    let mut conn_large = Connection::open_in_memory().unwrap();
+    run_migrations(&conn_large).unwrap();
+    seed_phase2_1(&mut conn_large).unwrap();
+    let resolver_large = TextResolver::load(&conn_large).unwrap();
+    let fixture_large = generate_synthetic_wordlist(10000);
+    language_graph_engine::lexicon_import::importer::import_eligible_words(
+        &mut conn_large,
+        &resolver_large,
+        &fixture_large,
+        None,
+    )
+    .unwrap();
+    group.bench_function("exact_lookup_after_10k_import", |b| {
+        b.iter(|| {
+            let res = find_written_form_exact(&conn_large, "b").unwrap().unwrap();
+            assert_eq!(res.surface_form, "b");
+        })
+    });
+
+    // 23. Paginated store listing after a large import (10k words)
+    group.bench_function("paginated_listing_after_10k_import", |b| {
+        b.iter(|| {
+            let res = list_written_forms(&conn_large, STORE_ENTITY_ID, 50, 5000).unwrap();
+            assert_eq!(res.len(), 50);
+        })
+    });
+
+    // 24. Immutable store-snapshot publication after large membership (10k words)
+    group.bench_function("publish_snapshot_after_10k_import", |b| {
+        b.iter(|| {
+            let res = publish_store_snapshot(&mut conn_large).unwrap();
+            assert_eq!(res.status, "No Changes");
+        })
+    });
+
+    // 25. Import-manifest CID creation
+    let manifest = language_graph_engine::lexicon_import::importer::LexiconImportManifest {
+        schema: "language-graph/lexicon-import-manifest/v1".to_string(),
+        source_entity_id:
+            "urn:language-graph:lexicon-source:esdb:en-us:rel-2026.02.25:size-60:default-variants"
+                .to_string(),
+        source_release_tag: "rel-2026.02.25".to_string(),
+        source_file_name: "en_US.txt".to_string(),
+        source_file_sha256: "abc123digest".to_string(),
+        source_entry_count: 109902,
+        admission_policy: "ascii-letters-with-internal-apostrophe-or-hyphen-v1".to_string(),
+        accepted_new_count: 100000,
+        accepted_reused_count: 9902,
+        deferred_count: 0,
+        rejected_or_malformed_count: 0,
+        resulting_store_snapshot_cid: "bafyreihjhfma5buevawmzrchj3bauifuvc5ey5b2x4fgfsjmiqqease33u"
+            .to_string(),
+    };
+    group.bench_function("manifest_cid_creation", |b| {
+        b.iter(|| {
+            let bytes = to_dag_cbor(&manifest).unwrap();
+            let _cid = compute_cid(&bytes).unwrap();
+        })
+    });
+
+    group.finish();
+}
+
+fn generate_synthetic_wordlist(count: usize) -> Vec<u8> {
+    let mut out = String::new();
+    for i in 0..count {
+        let mut word = String::new();
+        let mut temp = i + 1;
+        while temp > 0 {
+            let rem = (temp % 26) as u8;
+            word.push((b'a' + rem) as char);
+            temp /= 26;
+        }
+        out.push_str(&word);
+        out.push('\n');
+    }
+    out.into_bytes()
 }
 
 criterion_group!(benches, bench_resolver_ops);

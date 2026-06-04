@@ -244,6 +244,96 @@
             </section>
         </div>
 
+        <!-- Phase 3.1: Dictionary Population Workspace -->
+        <section class="card" id="dictionary-population-workspace" style="margin-top: 2rem;">
+            <div class="card-title">Dictionary Population</div>
+            <div class="grid-2" style="gap: 2rem; margin-top: 1rem;">
+                <!-- Left panel: upload & config -->
+                <div>
+                    <div style="margin-bottom: 1.5rem; padding: 1rem; background: rgba(255, 255, 255, 0.02); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                        <h4 style="margin-bottom: 0.5rem; color: #fff;">Selected Source</h4>
+                        <div style="font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.25rem; color: var(--text-secondary);">
+                            <div><strong>Provider:</strong> English Speller Database (ESDB)</div>
+                            <div><strong>Release Tag:</strong> rel-2026.02.25</div>
+                            <div><strong>File Name:</strong> en_US.txt</div>
+                            <div><strong>Expected Count:</strong> 109,902 entries</div>
+                            <div><strong>Policy:</strong> ASCII letters with internal apostrophes/hyphens</div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="esdb-file-input" style="font-size: 0.95rem; color: var(--text-secondary); display: block; margin-bottom: 0.5rem;">
+                            Select ESDB en_US.txt File
+                        </label>
+                        <input type="file" id="esdb-file-input" accept=".txt" style="display: block; width: 100%; margin-bottom: 1.5rem; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--card-border); border-radius: 8px; color: #fff;">
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn" style="flex: 1;" onclick="analyzeImportFile()">Analyze Import File</button>
+                            <button class="btn" style="flex: 1; background: var(--success);" id="import-btn" disabled onclick="executeImportFile()">Import Eligible Words</button>
+                        </div>
+                    </div>
+                    <!-- Status or progress -->
+                    <div id="import-progress-notice" style="display: none; margin-top: 1rem; font-size: 0.9rem; color: #f59e0b;"></div>
+                </div>
+
+                <!-- Right panel: Dry run or import report details -->
+                <div>
+                    <div id="import-report-box" style="display: none; padding: 1.2rem; background: rgba(255, 255, 255, 0.02); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05); height: 100%; display: flex; flex-direction: column; justify-content: space-between;">
+                        <div>
+                            <h4 id="report-title" style="margin-bottom: 0.75rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.5rem; color: #34d399;">Analysis/Import Report</h4>
+                            <div class="status-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                                <div class="status-item">
+                                    <span class="status-label">Entries Read</span>
+                                    <span class="status-value" id="rep-entries-read">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Eligible New</span>
+                                    <span class="status-value" id="rep-eligible-new">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Eligible Reused</span>
+                                    <span class="status-value" id="rep-eligible-reused">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Deferred Count</span>
+                                    <span class="status-value" id="rep-deferred">0</span>
+                                </div>
+                                <div class="status-item" style="grid-column: span 2;">
+                                    <span class="status-label">File SHA-256 Digest</span>
+                                    <span class="status-value" id="rep-digest" style="font-family: monospace; font-size: 0.8rem; word-break: break-all;"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="manifest-info-box" style="display: none; padding-top: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.85rem;">
+                            <div><strong>Snapshot CID:</strong> <span class="cid-badge" id="rep-snapshot-cid" onclick="copyText(this.innerText)"></span></div>
+                            <div style="margin-top: 0.25rem;"><strong>Import Manifest CID:</strong> <span class="cid-badge" id="rep-manifest-cid" onclick="copyText(this.innerText)"></span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Deferred entries viewer -->
+            <div id="deferred-entries-panel" style="display: none; margin-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.5rem;">
+                <h4 style="margin-bottom: 0.75rem; color: #fff;">Deferred Source Entries</h4>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Source Spelling</th>
+                                <th>Reason Code</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="deferred-entries-body">
+                        </tbody>
+                    </table>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+                    <button class="btn" id="prev-def-btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="changeDeferredPage(-1)">Previous</button>
+                    <span id="def-page-indicator" style="font-size: 0.85rem; color: var(--text-secondary);">Page 1</span>
+                    <button class="btn" id="next-def-btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="changeDeferredPage(1)">Next</button>
+                </div>
+            </div>
+        </section>
+
         <!-- Immutable Object Details (Expandable Pane) -->
         <section class="card" id="details-section" style="display: none;">
             <div class="card-title">Immutable Object Details</div>
@@ -316,6 +406,10 @@
                     <div class="detail-row">
                         <span>Composition Profile Snapshot CID</span>
                         <span id="word-det-profile-cid"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Sources / Attestations</span>
+                        <span id="word-det-sources" style="color: #34d399; font-weight: 500;"></span>
                     </div>
                 </div>
                 <div class="table-wrapper" style="margin-top: 1rem;">

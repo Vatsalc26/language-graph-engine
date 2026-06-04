@@ -246,5 +246,138 @@ pub fn run_migrations(conn: &Connection) -> Result<(), Error> {
         [],
     )?;
 
+    // Phase 3.1 Dictionary Population Additions
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lexicon_sources (
+            source_entity_id TEXT PRIMARY KEY,
+            source_kind TEXT NOT NULL,
+            label TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            release_tag TEXT NOT NULL,
+            source_path_label TEXT NOT NULL,
+            source_configuration_json TEXT NOT NULL,
+            license_label TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lexicon_import_batches (
+            import_id TEXT PRIMARY KEY,
+            source_entity_id TEXT NOT NULL,
+            source_file_sha256 TEXT NOT NULL,
+            source_byte_length INTEGER NOT NULL,
+            source_entry_count INTEGER NOT NULL,
+            admission_policy TEXT NOT NULL,
+            status TEXT NOT NULL,
+            accepted_new_count INTEGER NOT NULL DEFAULT 0,
+            accepted_reused_count INTEGER NOT NULL DEFAULT 0,
+            deferred_count INTEGER NOT NULL DEFAULT 0,
+            rejected_or_malformed_count INTEGER NOT NULL DEFAULT 0,
+            published_store_snapshot_cid TEXT,
+            manifest_cid TEXT,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            FOREIGN KEY (source_entity_id) REFERENCES lexicon_sources(source_entity_id),
+            FOREIGN KEY (published_store_snapshot_cid) REFERENCES written_form_store_snapshots(snapshot_cid)
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS written_form_attestations (
+            source_entity_id TEXT NOT NULL,
+            written_form_entity_id TEXT NOT NULL,
+            first_import_id TEXT NOT NULL,
+            latest_import_id TEXT NOT NULL,
+            source_surface_form TEXT NOT NULL,
+            attestation_status TEXT NOT NULL,
+            PRIMARY KEY (source_entity_id, written_form_entity_id),
+            FOREIGN KEY (source_entity_id) REFERENCES lexicon_sources(source_entity_id),
+            FOREIGN KEY (written_form_entity_id) REFERENCES written_forms(entity_id),
+            FOREIGN KEY (first_import_id) REFERENCES lexicon_import_batches(import_id),
+            FOREIGN KEY (latest_import_id) REFERENCES lexicon_import_batches(import_id)
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lexicon_import_deferred_entries (
+            import_id TEXT NOT NULL,
+            source_surface_form TEXT NOT NULL,
+            normalized_surface_form TEXT NOT NULL,
+            reason_code TEXT NOT NULL,
+            reason_detail TEXT NOT NULL,
+            PRIMARY KEY (import_id, source_surface_form),
+            FOREIGN KEY (import_id) REFERENCES lexicon_import_batches(import_id)
+        );",
+        [],
+    )?;
+
+    // Indexes
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_attestations_written_form
+         ON written_form_attestations(written_form_entity_id);",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_attestations_source
+         ON written_form_attestations(source_entity_id);",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_deferred_import_reason
+         ON lexicon_import_deferred_entries(import_id, reason_code);",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_store_members_active
+         ON written_form_store_members(store_entity_id, status, written_form_entity_id);",
+        [],
+    )?;
+
+    // Seed dummy "manual" entry source and batch
+    conn.execute(
+        "INSERT OR IGNORE INTO lexicon_sources (source_entity_id, source_kind, label, provider, release_tag, source_path_label, source_configuration_json, license_label, created_at)
+         VALUES (
+             'urn:language-graph:lexicon-source:manual',
+             'manual-entry',
+             'Manually saved',
+             'User',
+             'none',
+             'none',
+             '{}',
+             'none',
+             datetime('now')
+         );",
+        [],
+    )?;
+
+    conn.execute(
+        "INSERT OR IGNORE INTO lexicon_import_batches (import_id, source_entity_id, source_file_sha256, source_byte_length, source_entry_count, admission_policy, status, accepted_new_count, accepted_reused_count, deferred_count, rejected_or_malformed_count, published_store_snapshot_cid, manifest_cid, started_at, completed_at)
+         VALUES (
+             'manual',
+             'urn:language-graph:lexicon-source:manual',
+             '',
+             0,
+             0,
+             'ascii-letters-with-internal-apostrophe-or-hyphen-v1',
+             'completed',
+             0,
+             0,
+             0,
+             0,
+             NULL,
+             NULL,
+             datetime('now'),
+             datetime('now')
+         );",
+        [],
+    )?;
+
     Ok(())
 }

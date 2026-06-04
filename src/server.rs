@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::model::TextProfileSnapshot;
 use crate::seed::lowercase_latin::COLLECTION_ENTITY_ID as LOW_COL_ID;
 use axum::{
-    extract::{Json, Path, Query, State},
+    extract::{Json, Multipart, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -117,6 +117,21 @@ impl Server {
             .route(
                 "/api/word-stores/english-natural-language-written-forms/snapshots/active",
                 get(get_active_store_snapshot_route),
+            )
+            .route(
+                "/api/lexicon-import/esdb/analyze",
+                post(analyze_esdb_import),
+            )
+            .route("/api/lexicon-import/esdb/import", post(execute_esdb_import))
+            .route("/api/lexicon-import/sources", get(list_sources_route))
+            .route("/api/lexicon-import/batches", get(list_batches_route))
+            .route(
+                "/api/lexicon-import/batches/:import_id",
+                get(get_batch_details_route),
+            )
+            .route(
+                "/api/lexicon-import/batches/:import_id/deferred",
+                get(get_batch_deferred_route),
             )
             .fallback_service(ServeDir::new("public"))
             .layer(CorsLayer::permissive())
@@ -470,5 +485,135 @@ async fn get_active_store_snapshot_route(
     let res = crate::written_forms::get_active_store_snapshot(&inner.conn)?.ok_or_else(|| {
         Error::NotFoundError("No active published store snapshot found".to_string())
     })?;
+    Ok(Json(res))
+}
+
+#[derive(Deserialize)]
+pub struct ImportPaginationParams {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+async fn analyze_esdb_import(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<crate::lexicon_import::report::LexiconImportBatchResult>, Error> {
+    let mut file_bytes = Vec::new();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| Error::ValidationError(e.to_string()))?
+    {
+        if field.name() == Some("file") {
+            file_bytes = field
+                .bytes()
+                .await
+                .map_err(|e| Error::ValidationError(e.to_string()))?
+                .to_vec();
+            break;
+        }
+    }
+
+    if file_bytes.is_empty() {
+        return Err(Error::ValidationError("Missing file parameter".to_string()));
+    }
+
+    let inner = state.0.lock().unwrap();
+    let expected_count = if file_bytes.len() < 100000 {
+        None
+    } else {
+        Some(109902)
+    };
+    let res = crate::lexicon_import::importer::analyze_esdb_file(
+        &inner.conn,
+        &file_bytes,
+        expected_count,
+    )?;
+    Ok(Json(res))
+}
+
+async fn execute_esdb_import(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<crate::lexicon_import::report::LexiconImportBatchResult>, Error> {
+    let mut file_bytes = Vec::new();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| Error::ValidationError(e.to_string()))?
+    {
+        if field.name() == Some("file") {
+            file_bytes = field
+                .bytes()
+                .await
+                .map_err(|e| Error::ValidationError(e.to_string()))?
+                .to_vec();
+            break;
+        }
+    }
+
+    if file_bytes.is_empty() {
+        return Err(Error::ValidationError("Missing file parameter".to_string()));
+    }
+
+    let mut inner = state.0.lock().unwrap();
+    let expected_count = if file_bytes.len() < 100000 {
+        None
+    } else {
+        Some(109902)
+    };
+    let resolver = inner.resolver.clone();
+    let res = crate::lexicon_import::importer::import_eligible_words(
+        &mut inner.conn,
+        &resolver,
+        &file_bytes,
+        expected_count,
+    )?;
+    Ok(Json(res))
+}
+
+async fn list_sources_route(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::lexicon_import::provenance::LexiconSource>>, Error> {
+    let inner = state.0.lock().unwrap();
+    let res = crate::lexicon_import::importer::list_lexicon_sources(&inner.conn)?;
+    Ok(Json(res))
+}
+
+async fn list_batches_route(
+    State(state): State<AppState>,
+    Query(params): Query<ImportPaginationParams>,
+) -> Result<Json<Vec<crate::lexicon_import::provenance::LexiconImportBatch>>, Error> {
+    let inner = state.0.lock().unwrap();
+    let limit = params.limit.unwrap_or(20);
+    let offset = params.offset.unwrap_or(0);
+    let res = crate::lexicon_import::importer::list_import_batches(&inner.conn, limit, offset)?;
+    Ok(Json(res))
+}
+
+async fn get_batch_details_route(
+    State(state): State<AppState>,
+    Path(import_id): Path<String>,
+) -> Result<Json<crate::lexicon_import::provenance::LexiconImportBatch>, Error> {
+    let inner = state.0.lock().unwrap();
+    let res = crate::lexicon_import::importer::get_import_batch(&inner.conn, &import_id)?
+        .ok_or_else(|| Error::NotFoundError(format!("Import batch {} not found", import_id)))?;
+    Ok(Json(res))
+}
+
+async fn get_batch_deferred_route(
+    State(state): State<AppState>,
+    Path(import_id): Path<String>,
+    Query(params): Query<ImportPaginationParams>,
+) -> Result<Json<Vec<crate::lexicon_import::provenance::DeferredLexiconEntry>>, Error> {
+    let inner = state.0.lock().unwrap();
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    let res = crate::lexicon_import::importer::list_deferred_entries(
+        &inner.conn,
+        &import_id,
+        limit,
+        offset,
+    )?;
     Ok(Json(res))
 }

@@ -555,6 +555,12 @@ async function showWordDetails(surface) {
         document.getElementById("word-det-revision-cid").innerText = data.revisionCid;
         document.getElementById("word-det-profile-cid").innerText = data.compositionProfileSnapshotCid;
         
+        if (data.attestations && data.attestations.length > 0) {
+            document.getElementById("word-det-sources").innerText = data.attestations.join(", ");
+        } else {
+            document.getElementById("word-det-sources").innerText = "Manually saved";
+        }
+        
         const tbody = document.getElementById("word-det-components-body");
         tbody.innerHTML = "";
         
@@ -615,4 +621,164 @@ function showComposeError(msg) {
 function clearComposeError() {
     document.getElementById("compose-error-notice").style.display = "none";
 }
+
+// Dictionary Population UI functions
+let activeImportId = null;
+let deferredPage = 0;
+const deferredLimit = 10;
+
+async function analyzeImportFile() {
+    const fileInput = document.getElementById("esdb-file-input");
+    const file = fileInput.files[0];
+    if (!file) {
+        alert("Please select a wordlist text file first.");
+        return;
+    }
+
+    const progressNotice = document.getElementById("import-progress-notice");
+    progressNotice.style.display = "block";
+    progressNotice.innerText = "Analyzing source file (validating count and computing digest)...";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/api/lexicon-import/esdb/analyze", {
+            method: "POST",
+            body: formData
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || "Analysis failed");
+        }
+        const data = await res.json();
+
+        progressNotice.style.display = "none";
+        document.getElementById("import-report-box").style.display = "flex";
+        document.getElementById("report-title").innerText = "Dry-Run Analysis Report";
+        document.getElementById("report-title").style.color = "#a5b4fc";
+        
+        document.getElementById("rep-entries-read").innerText = data.entriesRead.toLocaleString();
+        document.getElementById("rep-eligible-new").innerText = data.eligibleNewWords.toLocaleString();
+        document.getElementById("rep-eligible-reused").innerText = data.eligibleExistingWordsToReuse.toLocaleString();
+        const deferredCount = data.deferredEntries + data.rejectedOrMalformed;
+        document.getElementById("rep-deferred").innerText = deferredCount.toLocaleString();
+        document.getElementById("rep-digest").innerText = data.sourceSha256Digest;
+
+        document.getElementById("manifest-info-box").style.display = "none";
+        document.getElementById("deferred-entries-panel").style.display = "none";
+
+        // Enable import button
+        document.getElementById("import-btn").disabled = false;
+    } catch (e) {
+        progressNotice.style.display = "none";
+        alert("Analysis Error: " + e.message);
+    }
+}
+
+async function executeImportFile() {
+    const fileInput = document.getElementById("esdb-file-input");
+    const file = fileInput.files[0];
+    if (!file) {
+        alert("Please select a wordlist text file first.");
+        return;
+    }
+
+    const progressNotice = document.getElementById("import-progress-notice");
+    progressNotice.style.display = "block";
+    progressNotice.innerText = "Importing eligible entries into English Words Store (this may take a few seconds)...";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/api/lexicon-import/esdb/import", {
+            method: "POST",
+            body: formData
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || "Import failed");
+        }
+        const data = await res.json();
+
+        progressNotice.style.display = "none";
+        document.getElementById("import-report-box").style.display = "flex";
+        document.getElementById("report-title").innerText = "Import Execution Report";
+        document.getElementById("report-title").style.color = "#34d399";
+
+        document.getElementById("rep-entries-read").innerText = data.entriesRead.toLocaleString();
+        document.getElementById("rep-eligible-new").innerText = data.eligibleNewWords.toLocaleString();
+        document.getElementById("rep-eligible-reused").innerText = data.eligibleExistingWordsToReuse.toLocaleString();
+        const deferredCount = data.deferredEntries + data.rejectedOrMalformed;
+        document.getElementById("rep-deferred").innerText = deferredCount.toLocaleString();
+        document.getElementById("rep-digest").innerText = data.sourceSha256Digest;
+
+        document.getElementById("manifest-info-box").style.display = "block";
+        document.getElementById("rep-snapshot-cid").innerText = data.snapshotCid;
+        document.getElementById("rep-manifest-cid").innerText = data.manifestCid;
+
+        // Fetch batches to get the latest import ID and display deferred entries
+        const batchesRes = await fetch("/api/lexicon-import/batches?limit=1");
+        if (batchesRes.ok) {
+            const batches = await batchesRes.json();
+            if (batches.length > 0) {
+                activeImportId = batches[0].importId;
+                deferredPage = 0;
+                fetchDeferredEntries();
+            }
+        }
+
+        // Refresh store browser and count
+        fetchStoreSummary();
+        resetBrowser();
+    } catch (e) {
+        progressNotice.style.display = "none";
+        alert("Import Error: " + e.message);
+    }
+}
+
+async function fetchDeferredEntries() {
+    if (!activeImportId) return;
+    try {
+        const offset = deferredPage * deferredLimit;
+        const res = await fetch(`/api/lexicon-import/batches/${activeImportId}/deferred?limit=${deferredLimit}&offset=${offset}`);
+        if (!res.ok) throw new Error(await res.text());
+        const entries = await res.json();
+
+        const tbody = document.getElementById("deferred-entries-body");
+        tbody.innerHTML = "";
+
+        if (entries.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">No deferred entries in this page.</td></tr>`;
+            document.getElementById("next-def-btn").disabled = true;
+            return;
+        }
+
+        document.getElementById("deferred-entries-panel").style.display = "block";
+
+        entries.forEach(e => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td style="font-weight: 600; color: #f59e0b;">${e.sourceSurfaceForm}</td>
+                <td><span class="badge badge-reused" style="font-size: 0.75rem;">${e.reasonCode}</span></td>
+                <td style="font-size: 0.85rem; color: var(--text-secondary);">${e.reasonDetail}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById("def-page-indicator").innerText = `Page ${deferredPage + 1}`;
+        document.getElementById("prev-def-btn").disabled = deferredPage === 0;
+        document.getElementById("next-def-btn").disabled = entries.length < deferredLimit;
+    } catch (err) {
+        console.error("Failed to load deferred entries:", err);
+    }
+}
+
+function changeDeferredPage(dir) {
+    deferredPage += dir;
+    if (deferredPage < 0) deferredPage = 0;
+    fetchDeferredEntries();
+}
+
 
