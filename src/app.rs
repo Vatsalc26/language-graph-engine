@@ -2,7 +2,6 @@ use crate::config::Config;
 use crate::db::migrations::run_migrations;
 use crate::error::Error;
 use crate::resolver::text::TextResolver;
-use crate::seed::lowercase_latin::seed_lowercase_latin;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
@@ -30,9 +29,14 @@ impl AppState {
         run_migrations(&conn)?;
 
         // Seed data
-        let active_snap_cid = seed_lowercase_latin(&mut conn)?;
+        let active_snap_cid = match config.seed_phase.as_str() {
+            "phase1" => crate::seed::lowercase_latin::seed_lowercase_latin(&mut conn)?,
+            "phase2" => crate::seed::phase2::seed_phase2(&mut conn)?,
+            _ => crate::seed::ascii_supplemental::seed_phase2_1(&mut conn)?,
+        };
         println!(
-            "Database successfully seeded. Active snapshot CID: {}",
+            "Database successfully seeded ({}). Active snapshot CID: {}",
+            config.seed_phase,
             active_snap_cid
         );
 

@@ -11,21 +11,21 @@
         <!-- Header -->
         <header>
             <h1>Language Graph Engine</h1>
-            <div class="subtitle">Phase 1: Lowercase Latin Alphabet Collection</div>
+            <div class="subtitle">Phase 2.1: Printable ASCII Text Profile</div>
         </header>
 
         <!-- Active Snapshot Summary -->
         <section class="card" id="snapshot-summary">
             <div class="card-title">
-                Active Snapshot Summary
+                Active Profile Summary
             </div>
             <div class="status-grid">
                 <div class="status-item">
-                    <span class="status-label">Collection Name</span>
+                    <span class="status-label">Profile Name</span>
                     <span class="status-value" id="collection-name">Loading...</span>
                 </div>
                 <div class="status-item">
-                    <span class="status-label">Active Snapshot CID</span>
+                    <span class="status-label">Active Profile Snapshot CID</span>
                     <span class="status-value">
                         <span class="cid-badge" id="snapshot-cid" onclick="copyText(this.innerText)">Loading...</span>
                     </span>
@@ -35,9 +35,29 @@
                     <span class="status-value" id="identifier-format">Loading...</span>
                 </div>
                 <div class="status-item">
-                    <span class="status-label">Number of Symbols</span>
+                    <span class="status-label">Total Supported Written Symbols</span>
                     <span class="status-value" id="symbol-count">Loading...</span>
                 </div>
+            </div>
+        </section>
+
+        <!-- Collections Registry -->
+        <section class="card" id="collections-registry">
+            <div class="card-title">Collections Registry</div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Collection</th>
+                            <th>Symbol Count</th>
+                            <th>Snapshot CID</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="collections-registry-body">
+                        <!-- 6 collections injected here -->
+                    </tbody>
+                </table>
             </div>
         </section>
 
@@ -48,9 +68,9 @@
                 <div class="card-title">Resolve Input</div>
                 <div class="form-group">
                     <label for="resolve-input" style="font-size: 0.95rem; color: var(--text-secondary);">
-                        Resolve lowercase text from the active alphabet snapshot
+                        Resolve text using the active Printable ASCII Text Profile
                     </label>
-                    <textarea id="resolve-input" placeholder="Type lowercase letters, for example: vatsal" oninput="clearError()"></textarea>
+                    <textarea id="resolve-input" placeholder="Type printable ASCII text, for example: email@example.com" oninput="clearError()"></textarea>
                     <button class="btn" id="resolve-btn" onclick="resolveInput()">Resolve</button>
                 </div>
                 
@@ -63,7 +83,7 @@
                         <div><strong>Input:</strong> <span id="res-input-text"></span></div>
                         <div><strong>Output:</strong> <span id="res-output-text"></span></div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
-                            <strong>Collection Snapshot CID:</strong> <span id="res-snap-cid" style="font-family: monospace;"></span>
+                            <strong>Active Profile Snapshot CID:</strong> <span id="res-snap-cid" style="font-family: monospace;"></span>
                         </div>
                     </div>
                     <div class="table-wrapper">
@@ -72,6 +92,9 @@
                                 <tr>
                                     <th>Position</th>
                                     <th>Input Grapheme</th>
+                                    <th>Display Name</th>
+                                    <th>Category</th>
+                                    <th>Source Collection</th>
                                     <th>Entity ID</th>
                                     <th>Revision CID</th>
                                     <th>Surface Form</th>
@@ -93,16 +116,17 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Position</th>
                                 <th>Surface Form</th>
-                                <th>Canonical Entity ID</th>
-                                <th>Active Revision CID</th>
-                                <th>Normalization</th>
+                                <th>Display Name</th>
+                                <th>Category</th>
+                                <th>Source Collection</th>
+                                <th>Entity ID</th>
+                                <th>Revision CID</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
                         <tbody id="symbol-registry-body">
-                            <!-- 26 items injected here -->
+                            <!-- 74 items injected here -->
                         </tbody>
                     </table>
                 </div>

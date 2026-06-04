@@ -7,7 +7,6 @@ use tower::ServiceExt;
 
 use language_graph_engine::app::AppState;
 use language_graph_engine::config::Config;
-use language_graph_engine::seed::lowercase_latin::COLLECTION_ENTITY_ID;
 use language_graph_engine::server::Server;
 
 async fn get_test_app() -> (axum::Router, tempfile::NamedTempFile) {
@@ -15,6 +14,7 @@ async fn get_test_app() -> (axum::Router, tempfile::NamedTempFile) {
     let config = Config {
         db_path: temp_db.path().to_path_buf(),
         listen_port: 0, // In-process test won't bind to port
+        seed_phase: "phase2_1".to_string(),
     };
     let app_state = AppState::new(config).expect("AppState init failed");
     let app = Server::build_router(app_state);
@@ -56,7 +56,7 @@ async fn test_http_api_endpoints() {
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let status_json: Value = serde_json::from_slice(&body_bytes).unwrap();
 
-    assert_eq!(status_json["symbolCount"], 26);
+    assert_eq!(status_json["symbolCount"], 95);
     assert_eq!(
         status_json["identifierFormat"],
         "CIDv1 / DAG-CBOR / SHA2-256"
@@ -67,8 +67,8 @@ async fn test_http_api_endpoints() {
         .to_string();
     assert!(!active_cid.is_empty());
 
-    // 3. GET /api/symbols returns exactly 26 healthy active symbols
-    // 4. Symbols returned in canonical order 'a' through 'z'
+    // 3. GET /api/symbols returns exactly 74 healthy active symbols
+    // 4. Symbols returned in canonical order 'a' through 'z' first
     let response = app
         .clone()
         .oneshot(
@@ -83,7 +83,7 @@ async fn test_http_api_endpoints() {
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let symbols_json: Value = serde_json::from_slice(&body_bytes).unwrap();
     let symbols_arr = symbols_json.as_array().unwrap();
-    assert_eq!(symbols_arr.len(), 26);
+    assert_eq!(symbols_arr.len(), 95);
 
     for (i, sym) in symbols_arr.iter().enumerate().take(26) {
         assert_eq!(sym["position"], (i + 1) as i64);
@@ -114,7 +114,7 @@ async fn test_http_api_endpoints() {
     assert_eq!(details_json["codec"], "dag-cbor");
     assert_eq!(details_json["multihashFormat"], "sha2-256");
 
-    // 5. Active snapshot details return exactly 26 ordered members
+    // 5. Active snapshot details return exactly 5 collections in profile snapshot
     let response = app
         .clone()
         .oneshot(
@@ -128,8 +128,11 @@ async fn test_http_api_endpoints() {
     assert_eq!(response.status(), StatusCode::OK);
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let snap_json: Value = serde_json::from_slice(&body_bytes).unwrap();
-    assert_eq!(snap_json["collectionEntityId"], COLLECTION_ENTITY_ID);
-    assert_eq!(snap_json["members"].as_array().unwrap().len(), 26);
+    assert_eq!(
+        snap_json["profileEntityId"],
+        "urn:language-graph:profile:printable-ascii-text"
+    );
+    assert_eq!(snap_json["collections"].as_array().unwrap().len(), 6);
 
     // 6. POST /api/resolve for 'vatsal' returns output and trace rows
     let response = app
@@ -192,7 +195,7 @@ async fn test_http_api_endpoints() {
                 .uri("/api/resolve")
                 .header("Content-Type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&serde_json::json!({ "text": "banana1" })).unwrap(),
+                    serde_json::to_vec(&serde_json::json!({ "text": "banana’" })).unwrap(),
                 ))
                 .unwrap(),
         )
@@ -201,10 +204,8 @@ async fn test_http_api_endpoints() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let resolve_err_json: Value = serde_json::from_slice(&body_bytes).unwrap();
-    assert!(resolve_err_json["error"]
-        .as_str()
-        .unwrap()
-        .contains("Unsupported character or grapheme: '1'"));
+    let err_str = resolve_err_json["error"].as_str().unwrap();
+    assert!(err_str.contains("U+2019"), "Error message was: {}", err_str);
 }
 
 #[tokio::test]

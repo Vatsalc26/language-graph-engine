@@ -5,6 +5,7 @@ let currentSymbolList = [];
 // Init on load
 document.addEventListener("DOMContentLoaded", () => {
     fetchStatus();
+    fetchCollections();
     fetchSymbols();
     fetchActiveSnapshot();
 });
@@ -33,7 +34,40 @@ async function fetchStatus() {
     }
 }
 
-// Fetch 26 symbols
+// Fetch active profile collections
+async function fetchCollections() {
+    try {
+        const res = await fetch("/api/collections");
+        if (!res.ok) throw new Error(await res.text());
+        const collections = await res.json();
+
+        const tbody = document.getElementById("collections-registry-body");
+        tbody.innerHTML = "";
+
+        collections.forEach(col => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td style="font-weight: 500; color: #fff;">${col.label}</td>
+                <td><strong>${col.symbolCount}</strong></td>
+                <td><span class="cid-badge" onclick="copyText('${col.snapshotCid}')">${col.snapshotCid}</span></td>
+                <td><span class="badge badge-healthy">${col.status}</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        showError("Failed to load collections: " + e.message);
+    }
+}
+
+// Helper to visibly render special chars
+function getDisplayCharLocal(surfaceForm) {
+    if (surfaceForm === " ") return "␠ SPACE";
+    if (surfaceForm === "\\") return "\\ REVERSE SOLIDUS";
+    if (surfaceForm === "`") return "` GRAVE ACCENT";
+    return surfaceForm;
+}
+
+// Fetch all active symbols
 async function fetchSymbols() {
     try {
         const res = await fetch("/api/symbols");
@@ -41,9 +75,15 @@ async function fetchSymbols() {
         const symbols = await res.json();
         currentSymbolList = symbols;
 
-        // Render collection label on status block
-        if (symbols.length > 0) {
+        // Render collection/profile label on status block
+        if (symbols.length === 95) {
+            document.getElementById("collection-name").innerText = "Printable ASCII Text Profile";
+        } else if (symbols.length === 74) {
+            document.getElementById("collection-name").innerText = "Basic English Written Text Profile";
+        } else if (symbols.length === 26) {
             document.getElementById("collection-name").innerText = "Latin lowercase alphabet a-z";
+        } else {
+            document.getElementById("collection-name").innerText = "Custom Profile";
         }
 
         const tbody = document.getElementById("symbol-registry-body");
@@ -54,12 +94,16 @@ async function fetchSymbols() {
             tr.className = "clickable-row";
             tr.onclick = () => showSymbolDetails(sym.canonicalEntityId);
             
+            const displayChar = getDisplayCharLocal(sym.surfaceForm);
+            const collectionLabel = sym.sourceCollectionEntityId.split(":").pop();
+
             tr.innerHTML = `
-                <td><strong>${sym.position}</strong></td>
-                <td style="font-size: 1.15rem; font-weight: 600; color: #a5b4fc;">${sym.surfaceForm}</td>
+                <td style="font-size: 1.15rem; font-weight: 600; color: #a5b4fc;">${displayChar}</td>
+                <td><span style="color: #fff;">${getDisplayNameLocal(sym.surfaceForm)}</span></td>
+                <td><span class="badge badge-reused">${sym.category}</span></td>
+                <td><span style="font-size: 0.85rem; color: var(--text-secondary);">${collectionLabel}</span></td>
                 <td><span style="font-family: monospace; font-size: 0.85rem;">${sym.canonicalEntityId}</span></td>
-                <td><span class="cid-badge" style="font-size: 0.8rem;">${sym.activeRevisionCid.substring(0, 8)}...</span></td>
-                <td><span class="badge badge-reused">${sym.normalization}</span></td>
+                <td><span class="cid-badge" style="font-size: 0.8rem;" onclick="event.stopPropagation(); copyText('${sym.activeRevisionCid}')">${sym.activeRevisionCid.substring(0, 8)}...</span></td>
                 <td><span class="badge badge-healthy">Healthy</span></td>
             `;
             tbody.appendChild(tr);
@@ -69,7 +113,51 @@ async function fetchSymbols() {
     }
 }
 
-// Fetch raw active snapshot object
+// Simple display name generator helper
+function getDisplayNameLocal(surfaceForm) {
+    const special = {
+        " ": "SPACE",
+        ".": "FULL STOP",
+        ",": "COMMA",
+        "?": "QUESTION MARK",
+        "!": "EXCLAMATION MARK",
+        "'": "APOSTROPHE",
+        "\"": "QUOTATION MARK",
+        "-": "HYPHEN-MINUS",
+        ":": "COLON",
+        ";": "SEMICOLON",
+        "(": "LEFT PARENTHESIS",
+        ")": "RIGHT PARENTHESIS",
+        "#": "NUMBER SIGN",
+        "$": "DOLLAR SIGN",
+        "%": "PERCENT SIGN",
+        "&": "AMPERSAND",
+        "*": "ASTERISK",
+        "+": "PLUS SIGN",
+        "/": "SOLIDUS",
+        "<": "LESS-THAN SIGN",
+        "=": "EQUALS SIGN",
+        ">": "GREATER-THAN SIGN",
+        "@": "COMMERCIAL AT",
+        "[": "LEFT SQUARE BRACKET",
+        "\\": "REVERSE SOLIDUS",
+        "]": "RIGHT SQUARE BRACKET",
+        "^": "CIRCUMFLEX ACCENT",
+        "_": "LOW LINE",
+        "`": "GRAVE ACCENT",
+        "{": "LEFT CURLY BRACKET",
+        "|": "VERTICAL LINE",
+        "}": "RIGHT CURLY BRACKET",
+        "~": "TILDE"
+    };
+    if (special[surfaceForm]) return special[surfaceForm];
+    if (/[0-9]/.test(surfaceForm)) return "DIGIT " + ["ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE"][surfaceForm.charCodeAt(0) - 48];
+    if (/[A-Z]/.test(surfaceForm)) return "LATIN CAPITAL LETTER " + surfaceForm;
+    if (/[a-z]/.test(surfaceForm)) return "LATIN SMALL LETTER " + surfaceForm;
+    return "UNKNOWN";
+}
+
+// Fetch raw active snapshot/profile object
 async function fetchActiveSnapshot() {
     try {
         const res = await fetch("/api/snapshots/active");
@@ -80,7 +168,6 @@ async function fetchActiveSnapshot() {
         const summaryCard = document.getElementById("snapshot-summary");
         summaryCard.style.cursor = "pointer";
         summaryCard.onclick = (e) => {
-            // Prevent drawer close if badge clicked
             if (!e.target.classList.contains("cid-badge")) {
                 showSnapshotDetails();
             }
@@ -101,11 +188,12 @@ async function showSymbolDetails(entityId) {
         document.getElementById("details-section").style.display = "block";
         document.getElementById("grapheme-detail-panel").style.display = "flex";
 
-        document.getElementById("detail-object-title").innerText = `Symbol Revision Details (${data.surfaceForm})`;
+        const displayChar = getDisplayCharLocal(data.surfaceForm);
+        document.getElementById("detail-object-title").innerText = `Symbol Revision Details (${displayChar})`;
         document.getElementById("det-entity-id").innerText = data.entityId;
         document.getElementById("det-revision-cid").innerText = data.revisionCid;
-        document.getElementById("det-surface-form").innerText = data.surfaceForm;
-        document.getElementById("det-normalized-form").innerText = data.normalizedForm;
+        document.getElementById("det-surface-form").innerText = displayChar;
+        document.getElementById("det-normalized-form").innerText = getDisplayCharLocal(data.normalizedForm);
         document.getElementById("det-unicode-scalar").innerText = data.unicodeScalars.join(", ");
         document.getElementById("det-script").innerText = data.script;
         document.getElementById("det-case").innerText = data.case;
@@ -133,7 +221,7 @@ async function showSymbolDetails(entityId) {
     }
 }
 
-// Show snapshot details
+// Show snapshot/profile details
 function showSnapshotDetails() {
     if (!activeSnapshot) return;
 
@@ -141,14 +229,20 @@ function showSnapshotDetails() {
     document.getElementById("details-section").style.display = "block";
     document.getElementById("grapheme-detail-panel").style.display = "flex";
 
-    document.getElementById("detail-object-title").innerText = "Active Collection Snapshot Details";
-    document.getElementById("det-entity-id").innerText = activeSnapshot.collectionEntityId;
+    const isProfile = !!activeSnapshot.profileEntityId;
+
+    document.getElementById("detail-object-title").innerText = isProfile 
+        ? "Active Profile Snapshot Details" 
+        : "Active Collection Snapshot Details";
+    document.getElementById("det-entity-id").innerText = isProfile 
+        ? activeSnapshot.profileEntityId 
+        : activeSnapshot.collectionEntityId;
     document.getElementById("det-revision-cid").innerText = document.getElementById("snapshot-cid").innerText;
-    document.getElementById("det-surface-form").innerText = "Ordered Collection";
+    document.getElementById("det-surface-form").innerText = isProfile ? "Text Profile" : "Ordered Collection";
     document.getElementById("det-normalized-form").innerText = "N/A";
     document.getElementById("det-unicode-scalar").innerText = "N/A";
-    document.getElementById("det-script").innerText = "Latn";
-    document.getElementById("det-case").innerText = "lowercase";
+    document.getElementById("det-script").innerText = isProfile ? "Common" : "Latn";
+    document.getElementById("det-case").innerText = "none";
     document.getElementById("det-codec").innerText = "dag-cbor";
     document.getElementById("det-multihash").innerText = "sha2-256";
 
@@ -169,7 +263,6 @@ async function resolveInput() {
 
     clearError();
 
-    // Client-side quick check for empty
     if (!text) {
         showError("Input text cannot be empty.");
         return;
@@ -186,7 +279,22 @@ async function resolveInput() {
 
         if (!res.ok) {
             const errData = await res.json();
-            throw new Error(errData.error || "Unexpected server error");
+            let errMsg = errData.error || "Unexpected server error";
+            
+            // Format descriptive validation errors to match Phase 2.1 Printable ASCII specifications
+            if (errMsg.includes("Unsupported character or grapheme:")) {
+                const parts = errMsg.replace("Unsupported character or grapheme:", "").split(",").map(p => p.trim());
+                const formatted = parts.map(part => {
+                    // Expect format like: "'🙂' U+1F642 UNSUPPORTED SYMBOL at position 3"
+                    const match = part.match(/'(.+)'\s+(U\+[0-9A-Fa-f]+)/);
+                    if (match) {
+                        return `${match[1]} ${match[2]} is not supported by the active Printable ASCII Text Profile.`;
+                    }
+                    return part;
+                });
+                errMsg = formatted.join("\n");
+            }
+            throw new Error(errMsg);
         }
 
         const data = await res.json();
@@ -204,12 +312,18 @@ async function resolveInput() {
             const tr = document.createElement("tr");
             
             const badgeClass = step.status === "Resolved" ? "badge-resolved" : "badge-reused";
+            const displayChar = getDisplayCharLocal(step.inputGrapheme);
+            const collectionLabel = step.sourceCollectionEntityId.split(":").pop();
+
             tr.innerHTML = `
                 <td><strong>${step.position}</strong></td>
-                <td style="font-size: 1.1rem; font-weight: 600; color: #fff;">${step.inputGrapheme}</td>
+                <td style="font-size: 1.1rem; font-weight: 600; color: #fff;">${displayChar}</td>
+                <td><span style="color: #fff;">${step.displayName}</span></td>
+                <td><span class="badge badge-reused" style="font-size: 0.7rem;">${step.category}</span></td>
+                <td><span style="font-size: 0.85rem; color: var(--text-secondary);">${collectionLabel}</span></td>
                 <td><span style="font-family: monospace; font-size: 0.8rem;">${step.entityId}</span></td>
-                <td><span class="cid-badge" style="font-size: 0.75rem;">${step.revisionCid.substring(0, 8)}...</span></td>
-                <td>${step.surfaceForm}</td>
+                <td><span class="cid-badge" style="font-size: 0.75rem;" onclick="copyText('${step.revisionCid}')">${step.revisionCid.substring(0, 8)}...</span></td>
+                <td>${getDisplayCharLocal(step.surfaceForm)}</td>
                 <td><span class="badge ${badgeClass}">${step.status}</span></td>
             `;
             tbody.appendChild(tr);
@@ -228,6 +342,7 @@ function showError(msg) {
     errorBox.style.display = "block";
 }
 
+// Clear error
 function clearError() {
     document.getElementById("error-notice").style.display = "none";
 }
