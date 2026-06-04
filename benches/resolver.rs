@@ -7,6 +7,10 @@ use language_graph_engine::model::{
 };
 use language_graph_engine::resolver::text::TextResolver;
 use language_graph_engine::seed::ascii_supplemental::seed_phase2_1;
+use language_graph_engine::written_forms::{
+    find_written_form_exact, get_written_form_details, list_written_forms, preview_written_form,
+    publish_store_snapshot, save_written_form, STORE_ENTITY_ID,
+};
 use rusqlite::Connection;
 
 fn get_temp_db_and_resolver() -> (Connection, TextResolver) {
@@ -175,6 +179,99 @@ fn bench_resolver_ops(c: &mut Criterion) {
         b.iter(|| {
             let bytes = to_dag_cbor(&profile).unwrap();
             let _cid = compute_cid(&bytes).unwrap();
+        })
+    });
+
+    // --- Phase 3 Benchmarks ---
+
+    // 11. Preview composition of bank
+    c.bench_function("preview_composition_bank", |b| {
+        b.iter(|| {
+            let res = preview_written_form(&resolver, &_conn, "bank").unwrap();
+            assert!(res.is_eligible);
+        })
+    });
+
+    // 12. Idempotent save of an existing written form
+    let mut conn_save = Connection::open_in_memory().unwrap();
+    run_migrations(&conn_save).unwrap();
+    seed_phase2_1(&mut conn_save).unwrap();
+    let resolver_save = TextResolver::load(&conn_save).unwrap();
+    save_written_form(&resolver_save, &mut conn_save, "bank").unwrap();
+    c.bench_function("save_idempotent_existing_written_form", |b| {
+        b.iter(|| {
+            let res = save_written_form(&resolver_save, &mut conn_save, "bank").unwrap();
+            assert_eq!(res.status, "Already Stored");
+        })
+    });
+
+    // 13. Explicit save of a new written form (using a counter to keep it unique)
+    let mut counter = 0;
+    c.bench_function("save_new_written_form", |b| {
+        b.iter(|| {
+            counter += 1;
+            let mut word = String::new();
+            let mut temp = counter;
+            while temp > 0 {
+                let rem = (temp % 26) as u8;
+                word.push((b'a' + rem) as char);
+                temp /= 26;
+            }
+            if word.is_empty() {
+                word.push('a');
+            }
+            let res = save_written_form(&resolver_save, &mut conn_save, &word).unwrap();
+            assert_eq!(res.status, "Created");
+        })
+    });
+
+    // 14. Exact indexed retrieval of bank
+    c.bench_function("exact_retrieval_bank", |b| {
+        b.iter(|| {
+            let res = find_written_form_exact(&conn_save, "bank")
+                .unwrap()
+                .unwrap();
+            assert_eq!(res.surface_form, "bank");
+        })
+    });
+
+    // 15. Detail retrieval including component trace
+    c.bench_function("detail_retrieval_bank", |b| {
+        b.iter(|| {
+            let res = get_written_form_details(&conn_save, "bank")
+                .unwrap()
+                .unwrap();
+            assert_eq!(res.surface_form, "bank");
+        })
+    });
+
+    // 16. Paginated listing of a populated test store (100 seeded words)
+    let mut conn_list = Connection::open_in_memory().unwrap();
+    run_migrations(&conn_list).unwrap();
+    seed_phase2_1(&mut conn_list).unwrap();
+    let resolver_list = TextResolver::load(&conn_list).unwrap();
+    for i in 0..100 {
+        let mut word = String::new();
+        let mut temp = i + 1;
+        while temp > 0 {
+            let rem = (temp % 26) as u8;
+            word.push((b'a' + rem) as char);
+            temp /= 26;
+        }
+        save_written_form(&resolver_list, &mut conn_list, &word).unwrap();
+    }
+    c.bench_function("paginated_listing_store", |b| {
+        b.iter(|| {
+            let res = list_written_forms(&conn_list, STORE_ENTITY_ID, 20, 40).unwrap();
+            assert_eq!(res.len(), 20);
+        })
+    });
+
+    // 17. Publishing a deterministic written-form store snapshot
+    c.bench_function("publish_store_snapshot", |b| {
+        b.iter(|| {
+            let res = publish_store_snapshot(&mut conn_list).unwrap();
+            assert!(!res.snapshot_cid.is_empty());
         })
     });
 }

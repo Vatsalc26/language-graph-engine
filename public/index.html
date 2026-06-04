@@ -133,6 +133,117 @@
             </section>
         </div>
 
+        <!-- Phase 3: English Words Workspace -->
+        <div class="grid-2" id="english-words-workspace">
+            <!-- Left Panel: Summary & Composer & Publish -->
+            <div style="display: flex; flex-direction: column; gap: 2rem;">
+                <!-- Live Store Summary -->
+                <section class="card">
+                    <div class="card-title">English Words Store Summary</div>
+                    <div class="status-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div class="status-item">
+                            <span class="status-label">Store Name</span>
+                            <span class="status-value">English Natural-Language Written Forms</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Admission Policy</span>
+                            <span class="status-value" style="font-size: 0.95rem;">Letters with internal apostrophe/hyphen</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Saved Written Forms</span>
+                            <span class="status-value" id="store-word-count">0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Published Snapshot CID</span>
+                            <span class="status-value" id="store-snapshot-cid" style="font-size: 0.85rem; font-family: monospace;">Not yet published</span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1.5rem;">
+                        <button class="btn" onclick="publishStoreSnapshot()">Publish English Words Snapshot</button>
+                        <div id="publish-result-box" style="display: none; margin-top: 1rem; padding: 0.75rem; background: rgba(16, 185, 129, 0.15); border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <div><strong>Published Snapshot CID:</strong> <span id="pub-snap-cid" style="font-family: monospace; font-size: 0.85rem; word-break: break-all;"></span></div>
+                            <div><strong>Members count:</strong> <span id="pub-snap-count"></span></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Compose & Save Section -->
+                <section class="card">
+                    <div class="card-title">Compose &amp; Save</div>
+                    <div class="form-group">
+                        <label for="compose-input" style="font-size: 0.95rem; color: var(--text-secondary);">
+                            Compose a natural-language written form
+                        </label>
+                        <input type="text" id="compose-input" placeholder="Type a word, for example: bank or can't" style="width: 100%; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--card-border); border-radius: 10px; color: var(--text-primary); padding: 0.85rem; font-family: var(--font-sans); font-size: 1.1rem; outline: none; margin-bottom: 1rem;" oninput="clearComposeError()">
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn" style="flex: 1;" onclick="previewWordform()">Preview Composition</button>
+                            <button class="btn" style="flex: 1; background: var(--success);" onclick="saveWordform()">Save Written Form</button>
+                        </div>
+                    </div>
+
+                    <!-- Compose Error -->
+                    <div class="validation-error" id="compose-error-notice"></div>
+
+                    <!-- Compose Result Preview -->
+                    <div id="compose-preview-result" style="display: none; margin-top: 1.5rem; padding: 1rem; background: rgba(255, 255, 255, 0.02); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                        <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.25rem;">Preview Details</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.9rem;">
+                            <div><strong>Candidate:</strong> <span id="prev-candidate"></span></div>
+                            <div><strong>Eligibility:</strong> <span id="prev-eligibility"></span></div>
+                            <div><strong>Profile Used:</strong> <span id="prev-profile">Printable ASCII Text Profile</span></div>
+                            <div><strong>Permanent Status:</strong> <span id="prev-status"></span></div>
+                        </div>
+                        <div style="margin-top: 0.75rem;">
+                            <strong>Composition:</strong> <span id="prev-composition" style="font-family: monospace; color: #a5b4fc;"></span>
+                        </div>
+                    </div>
+
+                    <!-- Save Result Box -->
+                    <div id="compose-save-result" style="display: none; margin-top: 1.5rem; padding: 1rem; background: rgba(16, 185, 129, 0.1); border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                        <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid rgba(16, 185, 129, 0.2); padding-bottom: 0.25rem; color: #34d399;">Saved Result</h4>
+                        <div style="font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.25rem;">
+                            <div><strong>Saved Written Form:</strong> <span id="save-surface"></span></div>
+                            <div><strong>Entity ID:</strong> <span id="save-entity-id" style="font-family: monospace; font-size: 0.8rem;"></span></div>
+                            <div><strong>Revision CID:</strong> <span id="save-revision-cid" style="font-family: monospace; font-size: 0.8rem;"></span></div>
+                            <div><strong>Store:</strong> <span id="save-store"></span></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Panel: Store Browser/Search -->
+            <section class="card" style="display: flex; flex-direction: column;">
+                <div class="card-title">English Words Store Browser</div>
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                    <input type="text" id="search-input" placeholder="Exact lookup surface form..." style="flex: 1; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--card-border); border-radius: 10px; color: var(--text-primary); padding: 0.6rem 0.85rem; font-family: var(--font-sans); font-size: 0.95rem; outline: none;">
+                    <button class="btn" style="padding: 0.6rem 1.2rem;" onclick="lookupWordform()">Lookup</button>
+                    <button class="btn" style="padding: 0.6rem 1.2rem; background: rgba(255,255,255,0.05); color: #fff;" onclick="resetBrowser()">Reset</button>
+                </div>
+                <div class="table-wrapper" style="flex: 1;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Surface Form</th>
+                                <th>Entity ID</th>
+                                <th>Revision CID</th>
+                                <th>Components</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="store-browser-body">
+                            <!-- Stored words dynamically listed here -->
+                        </tbody>
+                    </table>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding: 0.25rem;">
+                    <button class="btn" id="prev-page-btn" style="padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="changePage(-1)">Previous</button>
+                    <span id="page-indicator" style="font-size: 0.9rem; color: var(--text-secondary);">Page 1</span>
+                    <button class="btn" id="next-page-btn" style="padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="changePage(1)">Next</button>
+                </div>
+            </section>
+        </div>
+
         <!-- Immutable Object Details (Expandable Pane) -->
         <section class="card" id="details-section" style="display: none;">
             <div class="card-title">Immutable Object Details</div>
@@ -181,6 +292,48 @@
                     </div>
                 </div>
                 <pre id="det-raw-json"></pre>
+            </div>
+
+            <!-- Phase 3: Written Form Detail Panel -->
+            <div class="detail-panel" id="word-detail-panel" style="display: none; flex-direction: column; gap: 1rem; animation: fadeIn 0.4s ease;">
+                <div class="detail-header">
+                    <h3 id="word-detail-title">Written Form Details</h3>
+                    <button class="close-detail" onclick="closeDetails()">&times;</button>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-row">
+                        <span>Written Form</span>
+                        <span id="word-det-surface" style="font-size: 1.15rem; font-weight: 600; color: #a5b4fc;"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Entity ID</span>
+                        <span id="word-det-entity-id"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Revision CID</span>
+                        <span id="word-det-revision-cid"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Composition Profile Snapshot CID</span>
+                        <span id="word-det-profile-cid"></span>
+                    </div>
+                </div>
+                <div class="table-wrapper" style="margin-top: 1rem;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Position</th>
+                                <th>Symbol</th>
+                                <th>Symbol Entity ID</th>
+                                <th>Symbol Revision CID</th>
+                            </tr>
+                        </thead>
+                        <tbody id="word-det-components-body">
+                            <!-- Components trace injected here -->
+                        </tbody>
+                    </table>
+                </div>
+                <pre id="word-det-raw-json" style="margin-top: 1rem;"></pre>
             </div>
         </section>
     </div>

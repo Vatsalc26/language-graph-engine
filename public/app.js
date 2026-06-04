@@ -8,7 +8,10 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchCollections();
     fetchSymbols();
     fetchActiveSnapshot();
+    fetchStoreSummary();
+    fetchStoreWords();
 });
+
 
 // Clipboard helper
 function copyText(text) {
@@ -187,7 +190,8 @@ async function showSymbolDetails(entityId) {
         // Reveal panel
         document.getElementById("details-section").style.display = "block";
         document.getElementById("grapheme-detail-panel").style.display = "flex";
-
+        document.getElementById("word-detail-panel").style.display = "none";
+        
         const displayChar = getDisplayCharLocal(data.surfaceForm);
         document.getElementById("detail-object-title").innerText = `Symbol Revision Details (${displayChar})`;
         document.getElementById("det-entity-id").innerText = data.entityId;
@@ -228,6 +232,8 @@ function showSnapshotDetails() {
     // Reveal panel
     document.getElementById("details-section").style.display = "block";
     document.getElementById("grapheme-detail-panel").style.display = "flex";
+    document.getElementById("word-detail-panel").style.display = "none";
+
 
     const isProfile = !!activeSnapshot.profileEntityId;
 
@@ -346,3 +352,267 @@ function showError(msg) {
 function clearError() {
     document.getElementById("error-notice").style.display = "none";
 }
+
+// --- Phase 3 Written Forms UI Logic ---
+
+let storePage = 0;
+const storeLimit = 10;
+let isSearchActive = false;
+
+async function fetchStoreSummary() {
+    try {
+        const res = await fetch("/api/word-stores/english-natural-language-written-forms");
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        
+        document.getElementById("store-word-count").innerText = data.savedWordCount;
+        if (data.activeSnapshotCid) {
+            document.getElementById("store-snapshot-cid").innerHTML = 
+                `<span class="cid-badge" onclick="copyText('${data.activeSnapshotCid}')">${data.activeSnapshotCid}</span>`;
+        } else {
+            document.getElementById("store-snapshot-cid").innerText = "Not yet published";
+        }
+    } catch (e) {
+        console.error("Failed to fetch store summary:", e);
+    }
+}
+
+async function fetchStoreWords() {
+    if (isSearchActive) return;
+    try {
+        const offset = storePage * storeLimit;
+        const res = await fetch(`/api/wordforms?store=english-natural-language-written-forms&limit=${storeLimit}&offset=${offset}`);
+        if (!res.ok) throw new Error(await res.text());
+        const words = await res.json();
+        
+        renderBrowserList(words);
+        
+        // Update page indicator
+        document.getElementById("page-indicator").innerText = `Page ${storePage + 1}`;
+        document.getElementById("prev-page-btn").disabled = storePage === 0;
+        document.getElementById("next-page-btn").disabled = words.length < storeLimit;
+    } catch (e) {
+        console.error("Failed to fetch store words:", e);
+    }
+}
+
+function renderBrowserList(words) {
+    const tbody = document.getElementById("store-browser-body");
+    tbody.innerHTML = "";
+    
+    if (words.length === 0) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td colspan="6" style="text-align: center; color: var(--text-secondary);">No written forms saved.</td>`;
+        tbody.appendChild(tr);
+        return;
+    }
+    
+    words.forEach(word => {
+        const tr = document.createElement("tr");
+        tr.className = "clickable-row";
+        tr.onclick = () => showWordDetails(word.surfaceForm);
+        
+        tr.innerHTML = `
+            <td style="font-size: 1.1rem; font-weight: 600; color: #a5b4fc;">${word.surfaceForm}</td>
+            <td><span style="font-family: monospace; font-size: 0.8rem;">${word.entityId}</span></td>
+            <td><span class="cid-badge" style="font-size: 0.75rem;" onclick="event.stopPropagation(); copyText('${word.revisionCid}')">${word.revisionCid.substring(0, 8)}...</span></td>
+            <td><strong>${word.componentCount}</strong></td>
+            <td><span class="badge badge-healthy">Active</span></td>
+            <td><button class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="event.stopPropagation(); showWordDetails('${word.surfaceForm}')">Details</button></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function changePage(dir) {
+    storePage += dir;
+    if (storePage < 0) storePage = 0;
+    fetchStoreWords();
+}
+
+async function lookupWordform() {
+    const surface = document.getElementById("search-input").value.trim();
+    if (!surface) return;
+    
+    try {
+        const res = await fetch(`/api/wordforms/exact?surface=${encodeURIComponent(surface)}`);
+        if (res.status === 404) {
+            const tbody = document.getElementById("store-browser-body");
+            tbody.innerHTML = `<td colspan="6" style="text-align: center; color: var(--danger);">Word '${surface}' not found in store (exact case-sensitive match only).</td>`;
+            document.getElementById("prev-page-btn").disabled = true;
+            document.getElementById("next-page-btn").disabled = true;
+            return;
+        }
+        if (!res.ok) throw new Error(await res.text());
+        const word = await res.json();
+        
+        isSearchActive = true;
+        renderBrowserList([word]);
+        
+        document.getElementById("page-indicator").innerText = "Search Result";
+        document.getElementById("prev-page-btn").disabled = true;
+        document.getElementById("next-page-btn").disabled = true;
+    } catch (e) {
+        console.error("Lookup error:", e);
+    }
+}
+
+function resetBrowser() {
+    document.getElementById("search-input").value = "";
+    isSearchActive = false;
+    storePage = 0;
+    fetchStoreWords();
+}
+
+async function previewWordform() {
+    const input = document.getElementById("compose-input").value.trim();
+    clearComposeError();
+    document.getElementById("compose-preview-result").style.display = "none";
+    document.getElementById("compose-save-result").style.display = "none";
+    
+    if (!input) {
+        showComposeError("Input word cannot be empty.");
+        return;
+    }
+    
+    try {
+        const res = await fetch("/api/wordforms/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: input })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        
+        if (!data.isEligible) {
+            showComposeError(data.validationMessage || "Word is not eligible.");
+            return;
+        }
+        
+        document.getElementById("compose-preview-result").style.display = "block";
+        document.getElementById("prev-candidate").innerText = data.originalInput;
+        document.getElementById("prev-eligibility").innerText = "Eligible";
+        document.getElementById("prev-status").innerText = data.isAlreadyStored ? "Already Stored" : "Not stored";
+        
+        const compTrace = data.components.map(c => c.surfaceForm).join(" → ");
+        document.getElementById("prev-composition").innerText = compTrace;
+    } catch (e) {
+        showComposeError(e.message);
+    }
+}
+
+async function saveWordform() {
+    const input = document.getElementById("compose-input").value.trim();
+    clearComposeError();
+    document.getElementById("compose-preview-result").style.display = "none";
+    document.getElementById("compose-save-result").style.display = "none";
+    
+    if (!input) {
+        showComposeError("Input word cannot be empty.");
+        return;
+    }
+    
+    try {
+        const res = await fetch("/api/wordforms", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: input })
+        });
+        
+        if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.error || "Failed to save written form");
+        }
+        
+        const data = await res.json();
+        
+        document.getElementById("compose-save-result").style.display = "block";
+        document.getElementById("save-surface").innerText = data.surfaceForm;
+        document.getElementById("save-entity-id").innerText = data.entityId;
+        document.getElementById("save-revision-cid").innerText = data.revisionCid;
+        document.getElementById("save-store").innerText = "English Natural-Language Written Forms";
+        
+        // Refresh store browser and summary
+        fetchStoreSummary();
+        resetBrowser();
+    } catch (e) {
+        showComposeError(e.message);
+    }
+}
+
+async function showWordDetails(surface) {
+    try {
+        const res = await fetch(`/api/wordforms/details?surface=${encodeURIComponent(surface)}`);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        
+        document.getElementById("details-section").style.display = "block";
+        document.getElementById("grapheme-detail-panel").style.display = "none";
+        document.getElementById("word-detail-panel").style.display = "flex";
+        
+        document.getElementById("word-det-surface").innerText = data.surfaceForm;
+        document.getElementById("word-det-entity-id").innerText = data.entityId;
+        document.getElementById("word-det-revision-cid").innerText = data.revisionCid;
+        document.getElementById("word-det-profile-cid").innerText = data.compositionProfileSnapshotCid;
+        
+        const tbody = document.getElementById("word-det-components-body");
+        tbody.innerHTML = "";
+        
+        data.components.forEach(comp => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td><strong>${comp.position}</strong></td>
+                <td style="font-size: 1.15rem; font-weight: 600; color: #a5b4fc;">${comp.surfaceForm}</td>
+                <td><span style="font-family: monospace; font-size: 0.85rem;">${comp.symbolEntityId}</span></td>
+                <td><span class="cid-badge" onclick="copyText('${comp.symbolRevisionCid}')">${comp.symbolRevisionCid}</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        document.getElementById("word-det-raw-json").innerText = JSON.stringify({
+            schema: "language-graph/written-form-revision/v1",
+            entityId: data.entityId,
+            kind: "written-form",
+            formClass: "natural-language-written-form",
+            surfaceForm: data.surfaceForm,
+            normalizedForm: data.surfaceForm,
+            normalization: "NFC",
+            compositionProfileSnapshotCid: data.compositionProfileSnapshotCid,
+            components: data.components,
+            previousRevisionCid: null
+        }, null, 2);
+        
+        document.getElementById("details-section").scrollIntoView({ behavior: 'smooth' });
+    } catch (e) {
+        showError("Failed to fetch word details: " + e.message);
+    }
+}
+
+async function publishStoreSnapshot() {
+    try {
+        const res = await fetch("/api/word-stores/english-natural-language-written-forms/publish", {
+            method: "POST"
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        
+        document.getElementById("publish-result-box").style.display = "block";
+        document.getElementById("pub-snap-cid").innerText = data.snapshotCid;
+        document.getElementById("pub-snap-count").innerText = data.memberCount;
+        
+        fetchStoreSummary();
+    } catch (e) {
+        alert("Failed to publish store snapshot: " + e.message);
+    }
+}
+
+function showComposeError(msg) {
+    const errorBox = document.getElementById("compose-error-notice");
+    errorBox.innerText = msg;
+    errorBox.style.display = "block";
+}
+
+function clearComposeError() {
+    document.getElementById("compose-error-notice").style.display = "none";
+}
+

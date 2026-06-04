@@ -22,7 +22,7 @@ The long-term vision of this engine is to provide a durable local storage layer 
 Instead of dumping digits and punctuation into a single "alphabet" collection, they are represented as distinct immutable collections (`urn:language-graph:collection:decimal-digits-0-9` and `urn:language-graph:collection:basic-english-punctuation`). This models the linguistic boundary between alphabetic characters, numerical symbols, and typographic separators, allowing future profiles (such as numeric-only or specific language profiles) to reuse them independently.
 
 ### Explicitly unsupported in Phase 2
-Smart quotes (`’`, `“`, `”`), typographic dashes (`–`, `—`), ellipses (`…`), accented letters (e.g. `é`), combining characters (e.g. `á`), emoji, backslashes, math operators, and other scripts are rejected with descriptive validation errors. This maintains strict bounds on text formatting and ensures input sanitization is deterministic.
+Smart quotes (`’`, `“`, `”`), typographic dashes (`–`, `—`), ellipses (`…`), accented letters (e.g. `é`), combining characters (e.g. `á`), emoji, and non-ASCII scripts are rejected with descriptive validation errors. This maintains strict bounds on text formatting and ensures input sanitization is deterministic.
 
 ---
 
@@ -91,6 +91,23 @@ cargo --version
 * Registry is read-only at runtime; mutations only happen through startup seeding.
 * Supports exactly 95 symbols; other typographic variations or layout whitespaces (tabs/newlines) are blocked.
 
+### Phase 3 additions: English Natural-Language Written Forms Store
+Phase 3 adds a separate, logical live store: `urn:language-graph:store:english-natural-language-written-forms` (English Words).
+
+* **A Written Form is a composite spelling/composition object, not a meaning**:
+  * For example, `bank = b + a + n + k`.
+  * Each saved written form is a separate immutable composite object referencing the exact immutable symbol revision CIDs used to compose it.
+  * The engine does not yet know what `bank` means (senses/lexemes are deferred).
+* **Identity and Storage**:
+  * Each written form has a deterministic stable entity ID: `urn:language-graph:written-form:nfc:utf8:<lowercase-hex-of-normalized-utf8-bytes>`.
+  * It has an immutable `WrittenFormRevision` CID representing its state.
+  * Membership in the live English Words store is tracked dynamically in operational tables, separate from the immutable written-form CID.
+  * Manually published store snapshots are created as distinct immutable blocks containing sorted members and revision CIDs.
+  * Word persistence occurs ONLY via explicit Save operations; ordinary text resolution and preview remain strictly read-only.
+* **Admission Policy**:
+  * Accepting only letters with optional internal apostrophes or hyphens: `[A-Za-z]+(?:['-][A-Za-z]+)*`.
+  * Technical tokens, identifiers, numeric forms, emails, and URLs are rejected from this store (though still fully resolvable in the Printable ASCII profile).
+
 ### Roadmap
-* **Phase 3**: Persistent wordforms, lexeme records, dictionaries, and lexical metadata tracking.
+* **Phase 3**: Persistent English Words store, composition previews, live retrieval, and manual publication.
 * **Phase 4**: Meanings, definitions, semantic annotations, sentences, and vector embeddings.

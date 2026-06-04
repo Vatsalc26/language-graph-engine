@@ -7,3 +7,4 @@ pub mod model;
 pub mod resolver;
 pub mod seed;
 pub mod server;
+pub mod written_forms;

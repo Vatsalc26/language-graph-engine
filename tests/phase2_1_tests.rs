@@ -468,3 +468,27 @@ async fn test_http_api_phase2_1_endpoints() {
     let resolve_res: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(resolve_res["output"], "Hello, #Vatsal! +~`");
 }
+
+#[test]
+fn test_regression_phase2_1_specific_examples() {
+    let mut conn = get_temp_db();
+    seed_phase2_1(&mut conn).unwrap();
+
+    let resolver = TextResolver::load(&conn).unwrap();
+    assert_eq!(resolver.cache.len(), 95);
+
+    let specific_cases = vec![
+        r"path\to\file",
+        "3+4=7",
+        "C++ >= C?",
+        "email@example.com",
+        "array[0]",
+        r#"{status: "ok"}"#,
+    ];
+
+    for input in specific_cases {
+        let res = resolver.resolve(input).unwrap();
+        assert_eq!(res.input, input);
+        assert_eq!(res.output, input);
+    }
+}

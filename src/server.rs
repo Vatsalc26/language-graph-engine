@@ -4,12 +4,14 @@ use crate::error::Error;
 use crate::model::TextProfileSnapshot;
 use crate::seed::lowercase_latin::COLLECTION_ENTITY_ID as LOW_COL_ID;
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
+use rusqlite::OptionalExtension;
+
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
@@ -97,6 +99,25 @@ impl Server {
             .route("/api/resolve", post(resolve_text))
             .route("/api/collections", get(list_collections))
             .route("/api/profiles/active", get(get_active_profile))
+            .route(
+                "/api/word-stores/english-natural-language-written-forms",
+                get(get_word_store_metadata),
+            )
+            .route("/api/wordforms/preview", post(preview_wordform))
+            .route(
+                "/api/wordforms",
+                post(save_wordform).get(list_wordforms_route),
+            )
+            .route("/api/wordforms/exact", get(exact_wordform_lookup))
+            .route("/api/wordforms/details", get(get_wordform_details_route))
+            .route(
+                "/api/word-stores/english-natural-language-written-forms/publish",
+                post(publish_store_snapshot_route),
+            )
+            .route(
+                "/api/word-stores/english-natural-language-written-forms/snapshots/active",
+                get(get_active_store_snapshot_route),
+            )
             .fallback_service(ServeDir::new("public"))
             .layer(CorsLayer::permissive())
             .with_state(state)
@@ -299,4 +320,155 @@ async fn resolve_text(
     let inner = state.0.lock().unwrap();
     let result = inner.resolver.resolve(&payload.text)?;
     Ok(Json(result))
+}
+
+// --- Phase 3 Written Forms Types & Handlers ---
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoreMetadataResponse {
+    pub store_entity_id: String,
+    pub canonical_key: String,
+    pub label: String,
+    pub store_kind: String,
+    pub admission_policy: String,
+    pub saved_word_count: usize,
+    pub active_snapshot_cid: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct WordPreviewRequest {
+    pub text: String,
+}
+
+#[derive(Deserialize)]
+pub struct WordSaveRequest {
+    pub text: String,
+}
+
+#[derive(Deserialize)]
+pub struct ExactLookupParams {
+    pub surface: String,
+}
+
+#[derive(Deserialize)]
+pub struct ListWordformsParams {
+    pub store: String,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct DetailsParams {
+    pub surface: String,
+}
+
+async fn get_word_store_metadata(
+    State(state): State<AppState>,
+) -> Result<Json<StoreMetadataResponse>, Error> {
+    let inner = state.0.lock().unwrap();
+    let conn = &inner.conn;
+
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM written_form_store_members WHERE store_entity_id = ?1 AND status = 'active'",
+        [crate::written_forms::STORE_ENTITY_ID],
+        |row| row.get(0),
+    )?;
+
+    let active_snapshot_cid: Option<String> = conn
+        .query_row(
+            "SELECT snapshot_cid FROM active_written_form_store_snapshots WHERE store_entity_id = ?1",
+            [crate::written_forms::STORE_ENTITY_ID],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    let (label, canonical_key, store_kind, admission_policy): (String, String, String, String) = conn.query_row(
+        "SELECT label, canonical_key, store_kind, admission_policy FROM written_form_stores WHERE store_entity_id = ?1",
+        [crate::written_forms::STORE_ENTITY_ID],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )?;
+
+    Ok(Json(StoreMetadataResponse {
+        store_entity_id: crate::written_forms::STORE_ENTITY_ID.to_string(),
+        canonical_key,
+        label,
+        store_kind,
+        admission_policy,
+        saved_word_count: count as usize,
+        active_snapshot_cid,
+    }))
+}
+
+async fn preview_wordform(
+    State(state): State<AppState>,
+    Json(payload): Json<WordPreviewRequest>,
+) -> Result<Json<crate::written_forms::PreviewResult>, Error> {
+    let inner = state.0.lock().unwrap();
+    let res =
+        crate::written_forms::preview_written_form(&inner.resolver, &inner.conn, &payload.text)?;
+    Ok(Json(res))
+}
+
+async fn save_wordform(
+    State(state): State<AppState>,
+    Json(payload): Json<WordSaveRequest>,
+) -> Result<Json<crate::written_forms::SaveResult>, Error> {
+    let mut inner = state.0.lock().unwrap();
+    let resolver = inner.resolver.clone();
+    let res = crate::written_forms::save_written_form(&resolver, &mut inner.conn, &payload.text)?;
+    Ok(Json(res))
+}
+
+async fn exact_wordform_lookup(
+    State(state): State<AppState>,
+    Query(params): Query<ExactLookupParams>,
+) -> Result<Json<crate::written_forms::StoredWrittenFormSummary>, Error> {
+    let inner = state.0.lock().unwrap();
+    let res = crate::written_forms::find_written_form_exact(&inner.conn, &params.surface)?
+        .ok_or_else(|| {
+            Error::NotFoundError(format!("Word '{}' not found in store", params.surface))
+        })?;
+    Ok(Json(res))
+}
+
+async fn list_wordforms_route(
+    State(state): State<AppState>,
+    Query(params): Query<ListWordformsParams>,
+) -> Result<Json<Vec<crate::written_forms::StoredWrittenFormSummary>>, Error> {
+    let inner = state.0.lock().unwrap();
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    let res = crate::written_forms::list_written_forms(&inner.conn, &params.store, limit, offset)?;
+    Ok(Json(res))
+}
+
+async fn get_wordform_details_route(
+    State(state): State<AppState>,
+    Query(params): Query<DetailsParams>,
+) -> Result<Json<crate::written_forms::WrittenFormDetails>, Error> {
+    let inner = state.0.lock().unwrap();
+    let res = crate::written_forms::get_written_form_details(&inner.conn, &params.surface)?
+        .ok_or_else(|| {
+            Error::NotFoundError(format!("Word details for '{}' not found", params.surface))
+        })?;
+    Ok(Json(res))
+}
+
+async fn publish_store_snapshot_route(
+    State(state): State<AppState>,
+) -> Result<Json<crate::written_forms::PublishResult>, Error> {
+    let mut inner = state.0.lock().unwrap();
+    let res = crate::written_forms::publish_store_snapshot(&mut inner.conn)?;
+    Ok(Json(res))
+}
+
+async fn get_active_store_snapshot_route(
+    State(state): State<AppState>,
+) -> Result<Json<crate::model::WrittenFormStoreSnapshot>, Error> {
+    let inner = state.0.lock().unwrap();
+    let res = crate::written_forms::get_active_store_snapshot(&inner.conn)?.ok_or_else(|| {
+        Error::NotFoundError("No active published store snapshot found".to_string())
+    })?;
+    Ok(Json(res))
 }
