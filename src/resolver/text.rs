@@ -1,8 +1,8 @@
+use crate::db::repository::Repository;
+use crate::error::Error;
+use crate::seed::lowercase_latin::COLLECTION_ENTITY_ID;
 use std::collections::{HashMap, HashSet};
 use unicode_segmentation::UnicodeSegmentation;
-use crate::error::Error;
-use crate::db::repository::Repository;
-use crate::seed::lowercase_latin::COLLECTION_ENTITY_ID;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,14 +41,19 @@ pub struct ResolutionResult {
 impl TextResolver {
     pub fn load(conn: &rusqlite::Connection) -> Result<Self, Error> {
         let repo = Repository::new(conn);
-        
+
         // Find active snapshot CID
-        let active_cid = repo.get_active_snapshot_cid(COLLECTION_ENTITY_ID)?
-            .ok_or_else(|| Error::NotFoundError("No active snapshot found for lowercase latin alphabet".to_string()))?;
+        let active_cid = repo
+            .get_active_snapshot_cid(COLLECTION_ENTITY_ID)?
+            .ok_or_else(|| {
+                Error::NotFoundError(
+                    "No active snapshot found for lowercase latin alphabet".to_string(),
+                )
+            })?;
 
         // Load snapshot members
         let members = repo.get_snapshot_members(&active_cid)?;
-        
+
         let mut cache = HashMap::new();
         for member in members {
             // Load the grapheme revision block to get the surface form
@@ -71,7 +76,9 @@ impl TextResolver {
 
     pub fn resolve(&self, input: &str) -> Result<ResolutionResult, Error> {
         if input.is_empty() {
-            return Err(Error::ValidationError("Input text cannot be empty".to_string()));
+            return Err(Error::ValidationError(
+                "Input text cannot be empty".to_string(),
+            ));
         }
 
         // Segment into graphemes

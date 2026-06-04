@@ -1,5 +1,5 @@
-use rusqlite::Connection;
 use crate::error::Error;
+use rusqlite::Connection;
 
 pub fn run_migrations(conn: &Connection) -> Result<(), Error> {
     // Enable foreign keys

@@ -1,10 +1,10 @@
+use crate::content::cid::compute_cid;
+use crate::content::encoding::to_dag_cbor;
+use crate::db::repository::Repository;
+use crate::error::Error;
+use crate::model::{AlphabetSnapshot, GraphemeRevision, SnapshotMember};
 use rusqlite::Connection;
 use unicode_normalization::UnicodeNormalization;
-use crate::error::Error;
-use crate::db::repository::Repository;
-use crate::model::{GraphemeRevision, AlphabetSnapshot, SnapshotMember};
-use crate::content::encoding::to_dag_cbor;
-use crate::content::cid::compute_cid;
 
 pub const COLLECTION_ENTITY_ID: &str = "urn:language-graph:collection:latin-lowercase-a-z";
 
@@ -21,12 +21,12 @@ pub fn seed_lowercase_latin(conn: &mut Connection) -> Result<String, Error> {
         let ch = (b'a' + i) as char;
         // Normalize surface form to NFC
         let surface_form: String = ch.to_string().nfc().collect();
-        
+
         // Get unicode scalar code point
         let scalar_val = ch as u32;
         let scalar_str = format!("U+{:04X}", scalar_val);
         let hex_id = format!("{:04x}", scalar_val);
-        
+
         let entity_id = format!("urn:language-graph:grapheme:nfc:{}", hex_id);
         let canonical_key = surface_form.clone();
         let label = format!("grapheme '{}'", surface_form);
@@ -47,7 +47,7 @@ pub fn seed_lowercase_latin(conn: &mut Connection) -> Result<String, Error> {
 
         // Encode as DAG-CBOR
         let bytes = to_dag_cbor(&rev)?;
-        
+
         // Compute CIDv1
         let cid = compute_cid(&bytes)?;
         let cid_str = cid.to_string();
@@ -65,7 +65,13 @@ pub fn seed_lowercase_latin(conn: &mut Connection) -> Result<String, Error> {
         }
 
         // Store block, entity, head
-        repo.insert_block(&cid_str, "dag-cbor", "sha2-256", "grapheme_revision", &bytes)?;
+        repo.insert_block(
+            &cid_str,
+            "dag-cbor",
+            "sha2-256",
+            "grapheme_revision",
+            &bytes,
+        )?;
         repo.insert_entity(&entity_id, "grapheme", &canonical_key, &label)?;
         repo.set_entity_head(&entity_id, &cid_str)?;
 
@@ -103,13 +109,28 @@ pub fn seed_lowercase_latin(conn: &mut Connection) -> Result<String, Error> {
     }
 
     // Store snapshot block, collection, and snapshots mappings
-    repo.insert_block(&snap_cid_str, "dag-cbor", "sha2-256", "collection_snapshot", &snap_bytes)?;
-    repo.insert_collection(COLLECTION_ENTITY_ID, "latin-lowercase-a-z", "Latin lowercase alphabet a-z")?;
+    repo.insert_block(
+        &snap_cid_str,
+        "dag-cbor",
+        "sha2-256",
+        "collection_snapshot",
+        &snap_bytes,
+    )?;
+    repo.insert_collection(
+        COLLECTION_ENTITY_ID,
+        "latin-lowercase-a-z",
+        "Latin lowercase alphabet a-z",
+    )?;
     repo.insert_snapshot(&snap_cid_str, COLLECTION_ENTITY_ID)?;
 
     // Store searchable projections of snapshot members
     for member in &snapshot.members {
-        repo.insert_snapshot_member(&snap_cid_str, member.position, &member.entity_id, &member.revision_cid)?;
+        repo.insert_snapshot_member(
+            &snap_cid_str,
+            member.position,
+            &member.entity_id,
+            &member.revision_cid,
+        )?;
     }
 
     // Mark that snapshot as the active published snapshot

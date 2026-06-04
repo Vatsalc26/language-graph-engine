@@ -1,17 +1,17 @@
-use std::net::SocketAddr;
+use crate::app::AppState;
+use crate::db::repository::Repository;
+use crate::error::Error;
 use axum::{
-    extract::{Path, State, Json},
+    extract::{Json, Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
-use crate::app::AppState;
-use crate::error::Error;
-use crate::db::repository::Repository;
 
 // Custom response wrapper to convert application Errors to HTTP responses
 impl IntoResponse for Error {
@@ -74,14 +74,8 @@ pub struct SymbolDetailsResponse {
 pub struct Server;
 
 impl Server {
-    pub async fn run(state: AppState) -> Result<(), Error> {
-        let port = {
-            let inner = state.0.lock().unwrap();
-            inner.config.listen_port
-        };
-
-        // Create routing
-        let app = Router::new()
+    pub fn build_router(state: AppState) -> Router {
+        Router::new()
             .route("/api/status", get(get_status))
             .route("/api/symbols", get(list_symbols))
             .route("/api/symbols/:entity_id", get(get_symbol_details))
@@ -89,15 +83,29 @@ impl Server {
             .route("/api/resolve", post(resolve_text))
             .fallback_service(ServeDir::new("public"))
             .layer(CorsLayer::permissive())
-            .with_state(state);
+            .with_state(state)
+    }
+
+    pub async fn run(state: AppState) -> Result<(), Error> {
+        let port = {
+            let inner = state.0.lock().unwrap();
+            inner.config.listen_port
+        };
+
+        let app = Self::build_router(state);
 
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
-        let listener = tokio::net::TcpListener::bind(&addr).await
-            .map_err(|e| Error::CidError(format!("Failed to bind server to address {}: {:?}", addr, e)))?;
-        
+        let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
+            Error::CidError(format!(
+                "Failed to bind server to address {}: {:?}",
+                addr, e
+            ))
+        })?;
+
         println!("Language Graph Engine running at http://localhost:{}", port);
-        
-        axum::serve(listener, app).await
+
+        axum::serve(listener, app)
+            .await
             .map_err(|e| Error::CidError(format!("Server execution failed: {:?}", e)))?;
 
         Ok(())
@@ -121,7 +129,7 @@ async fn list_symbols(State(state): State<AppState>) -> Result<Json<Vec<SymbolSu
 
     // Retrieve active members from snapshot
     let members = repo.get_snapshot_members(&inner.resolver.active_snapshot_cid)?;
-    
+
     let mut summaries = Vec::new();
     for member in members {
         let rev = repo.get_grapheme_revision(&member.revision_cid)?;
@@ -146,8 +154,9 @@ async fn get_symbol_details(
     let repo = Repository::new(&inner.conn);
 
     // Get current revision CID from head
-    let revision_cid = repo.get_entity_head(&entity_id)?
-        .ok_or_else(|| Error::NotFoundError(format!("No head revision found for entity {}", entity_id)))?;
+    let revision_cid = repo.get_entity_head(&entity_id)?.ok_or_else(|| {
+        Error::NotFoundError(format!("No head revision found for entity {}", entity_id))
+    })?;
 
     // Load grapheme revision details
     let rev = repo.get_grapheme_revision(&revision_cid)?;
@@ -166,10 +175,12 @@ async fn get_symbol_details(
     }))
 }
 
-async fn get_active_snapshot(State(state): State<AppState>) -> Result<Json<crate::model::AlphabetSnapshot>, Error> {
+async fn get_active_snapshot(
+    State(state): State<AppState>,
+) -> Result<Json<crate::model::AlphabetSnapshot>, Error> {
     let inner = state.0.lock().unwrap();
     let repo = Repository::new(&inner.conn);
-    
+
     let snapshot = repo.get_alphabet_snapshot(&inner.resolver.active_snapshot_cid)?;
     Ok(Json(snapshot))
 }

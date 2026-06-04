@@ -1,103 +1,243 @@
-use rusqlite::Connection;
 use language_graph_engine::db::migrations::run_migrations;
+use language_graph_engine::db::repository::Repository;
+use language_graph_engine::error::Error;
 use language_graph_engine::seed::lowercase_latin::{seed_lowercase_latin, COLLECTION_ENTITY_ID};
+use rusqlite::Connection;
 
-#[test]
-fn test_initial_seeding_correctness() {
-    let mut conn = Connection::open_in_memory().expect("Failed to open in-memory SQLite");
+fn get_temp_db() -> Connection {
+    let conn = Connection::open_in_memory().expect("Failed to open in-memory SQLite");
     run_migrations(&conn).expect("Failed to run migrations");
-
-    // Run seeding
-    let snap_cid = seed_lowercase_latin(&mut conn).expect("First seeding failed");
-    assert!(!snap_cid.is_empty(), "Snapshot CID is empty");
-
-    // 1. Initial seeding creates exactly 26 stable grapheme entities
-    let entity_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM entities WHERE kind = 'grapheme'",
-        [],
-        |row| row.get(0)
-    ).unwrap();
-    assert_eq!(entity_count, 26, "Did not seed exactly 26 entities");
-
-    // 2. Initial seeding creates exactly 26 current grapheme revision heads
-    let head_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM entity_heads",
-        [],
-        |row| row.get(0)
-    ).unwrap();
-    assert_eq!(head_count, 26, "Did not seed exactly 26 entity heads");
-
-    // 3. Initial seeding creates one active lowercase alphabet snapshot
-    let active_snap_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM active_collection_snapshots WHERE collection_entity_id = ?1",
-        [COLLECTION_ENTITY_ID],
-        |row| row.get(0)
-    ).unwrap();
-    assert_eq!(active_snap_count, 1, "Did not seed exactly 1 active collection snapshot");
-
-    // 4. Running seeding twice is idempotent and does not duplicate entities or snapshots
-    let snap_cid_second = seed_lowercase_latin(&mut conn).expect("Second seeding failed");
-    assert_eq!(snap_cid, snap_cid_second, "Second seeding produced a different snapshot CID!");
-
-    let entity_count_2: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM entities WHERE kind = 'grapheme'",
-        [],
-        |row| row.get(0)
-    ).unwrap();
-    assert_eq!(entity_count_2, 26, "Entity count changed after second seeding");
-
-    let snap_count_2: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM collection_snapshots WHERE collection_entity_id = ?1",
-        [COLLECTION_ENTITY_ID],
-        |row| row.get(0)
-    ).unwrap();
-    assert_eq!(snap_count_2, 1, "Snapshot count changed after second seeding");
+    conn
 }
 
 #[test]
-fn test_seeding_integrity_error_on_conflict() {
-    let mut conn = Connection::open_in_memory().expect("Failed to open in-memory SQLite");
-    run_migrations(&conn).expect("Failed to run migrations");
+fn test_db_migration_succeeds() {
+    let conn = Connection::open_in_memory().expect("Open db");
+    let res = run_migrations(&conn);
+    assert!(res.is_ok(), "Migrations failed: {:?}", res.err());
 
-    // Manually insert a conflicting entity for 'a' before seeding
+    // Verify tables exist
+    let tables = vec![
+        "immutable_blocks",
+        "entities",
+        "entity_heads",
+        "collections",
+        "collection_snapshots",
+        "collection_snapshot_members",
+        "active_collection_snapshots",
+    ];
+
+    for table in tables {
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "Table {} does not exist", table);
+    }
+}
+
+#[test]
+fn test_foreign_key_enforcement() {
+    let conn = get_temp_db();
+
+    // Insert an entity head pointing to a non-existent entity and revision CID
+    let res = conn.execute(
+        "INSERT INTO entity_heads (entity_id, revision_cid, updated_at) 
+         VALUES ('urn:fake-entity', 'bafyreibfake', datetime('now'))",
+        [],
+    );
+    assert!(
+        res.is_err(),
+        "Foreign key constraint should have failed for entity_heads insert"
+    );
+}
+
+#[test]
+fn test_initial_seeding_metrics() {
+    let mut conn = get_temp_db();
+    let snap_cid = seed_lowercase_latin(&mut conn).expect("Seeding failed");
+
+    let repo = Repository::new(&conn);
+
+    // 3. Initial seeding creates exactly 26 stable grapheme entities
+    let entity_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM entities WHERE kind='grapheme'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(entity_count, 26);
+
+    // 4. Initial seeding creates exactly 26 active seeded revision heads
+    let head_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entity_heads", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(head_count, 26);
+
+    // 5. Initial seeding creates expected revision blocks (26 revisions + 1 snapshot = 27 blocks)
+    let block_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM immutable_blocks", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(block_count, 27);
+
+    // 6. Initial seeding creates exactly one lowercase alphabet collection entity
+    let coll_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM collections", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(coll_count, 1);
+
+    // 7. Initial seeding creates exactly one active published alphabet snapshot
+    let active_snap = repo
+        .get_active_snapshot_cid(COLLECTION_ENTITY_ID)
+        .unwrap()
+        .expect("Active snapshot CID");
+    assert_eq!(active_snap, snap_cid);
+
+    // 8. The active snapshot has exactly 26 ordered members
+    let members = repo.get_snapshot_members(&snap_cid).unwrap();
+    assert_eq!(members.len(), 26);
+
+    // 9. The ordered members correspond exactly to a through z
+    for i in 0..26 {
+        let ch = (b'a' + i) as char;
+        let expected_entity = format!("urn:language-graph:grapheme:nfc:{:04x}", ch as u32);
+        assert_eq!(members[i as usize].position, (i + 1) as i32);
+        assert_eq!(members[i as usize].entity_id, expected_entity);
+    }
+}
+
+#[test]
+fn test_seeding_idempotency() {
+    let mut conn = get_temp_db();
+    let snap_cid1 = seed_lowercase_latin(&mut conn).expect("First seed");
+    let snap_cid2 = seed_lowercase_latin(&mut conn).expect("Second seed");
+    assert_eq!(
+        snap_cid1, snap_cid2,
+        "Idempotent seeding must return identical snapshot CID"
+    );
+
+    // Assert counts are unchanged
+    let entity_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entities", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(entity_count, 26);
+
+    let head_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entity_heads", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(head_count, 26);
+
+    let block_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM immutable_blocks", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(block_count, 27);
+}
+
+#[test]
+fn test_databases_consistency() {
+    let mut conn1 = get_temp_db();
+    let mut conn2 = get_temp_db();
+
+    let snap_cid1 = seed_lowercase_latin(&mut conn1).unwrap();
+    let snap_cid2 = seed_lowercase_latin(&mut conn2).unwrap();
+
+    assert_eq!(
+        snap_cid1, snap_cid2,
+        "Independent databases must yield identical snapshot CID"
+    );
+}
+
+#[test]
+fn test_database_tampering_integrity_error() {
+    let mut conn = get_temp_db();
+    let _snap_cid = seed_lowercase_latin(&mut conn).unwrap();
+
+    let repo = Repository::new(&conn);
+    let members = repo.get_snapshot_members(_snap_cid.as_str()).unwrap();
+    let rev_a_cid = &members[0].revision_cid;
+
+    // Tamper with the bytes of 'a' block in the database
+    conn.execute(
+        "UPDATE immutable_blocks SET bytes = x'123456' WHERE cid = ?1",
+        [rev_a_cid],
+    )
+    .unwrap();
+
+    // Now attempting to retrieve grapheme revision 'a' must trigger integrity check error
+    let res = repo.get_grapheme_revision(rev_a_cid);
+    assert!(res.is_err());
+    let err_msg = format!("{:?}", res.err().unwrap());
+    assert!(
+        err_msg.contains("Integrity check failed"),
+        "Error: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn test_conflicting_canonical_entity_error() {
+    let mut conn = get_temp_db();
+
+    // Insert entity for 'a' with conflicting canonical_key or label
     conn.execute(
         "INSERT INTO entities (entity_id, kind, canonical_key, label, created_at)
-         VALUES ('urn:language-graph:grapheme:nfc:0061', 'grapheme', 'a', 'conflicting label', datetime('now'))",
+         VALUES ('urn:language-graph:grapheme:nfc:0061', 'grapheme', 'a', 'Conflicting Label', datetime('now'))",
         [],
     ).unwrap();
 
-    // Now seeding should fail due to conflicting entity label for 'a'
-    let result = seed_lowercase_latin(&mut conn);
-    assert!(result.is_err(), "Seeding should have failed due to conflicting entity label");
-    let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("Conflicting label for entity"), "Error message was: {}", err_msg);
+    let res = seed_lowercase_latin(&mut conn);
+    assert!(
+        res.is_err(),
+        "Seeding must fail due to conflicting canonical entity info"
+    );
+    assert!(matches!(res.unwrap_err(), Error::IntegrityError(_)));
 }
 
 #[test]
-fn test_seeding_integrity_error_on_head_conflict() {
-    let mut conn = Connection::open_in_memory().expect("Failed to open in-memory SQLite");
-    run_migrations(&conn).expect("Failed to run migrations");
+fn test_transaction_safety_on_seeding_failure() {
+    let mut conn = get_temp_db();
 
-    // Seed first
-    seed_lowercase_latin(&mut conn).expect("Initial seeding failed");
-
-    // Manually update the head of 'a' to a different CID
-    // First, let's create a fake block so the foreign key constraint is satisfied
+    // Pre-insert a conflict for letter 'm'
     conn.execute(
-        "INSERT INTO immutable_blocks (cid, codec, multihash_algorithm, block_kind, bytes, stored_at)
-         VALUES ('bagybeifakecid123', 'dag-cbor', 'sha2-256', 'grapheme_revision', x'00', datetime('now'))",
+        "INSERT INTO entities (entity_id, kind, canonical_key, label, created_at)
+         VALUES ('urn:language-graph:grapheme:nfc:006d', 'grapheme', 'm', 'Conflict on M', datetime('now'))",
         [],
     ).unwrap();
 
-    // Now disable foreign key check temporarily or use the fake CID
-    conn.execute(
-        "UPDATE entity_heads SET revision_cid = 'bagybeifakecid123' WHERE entity_id = 'urn:language-graph:grapheme:nfc:0061'",
-        [],
-    ).unwrap();
+    // Run seeding - it will fail on letter 'm'
+    let res = seed_lowercase_latin(&mut conn);
+    assert!(res.is_err(), "Seeding should have failed on M");
 
-    // Seeding again should fail because the head of 'a' has a conflicting value
-    let result = seed_lowercase_latin(&mut conn);
-    assert!(result.is_err(), "Seeding should have failed due to conflicting head");
-    let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("Conflicting head revision for entity"), "Error message was: {}", err_msg);
+    // Since seeding failed, the entire transaction must have rolled back.
+    // Verify that NO items for other letters exist in heads or collections
+    // (the pre-inserted 'urn:language-graph:grapheme:nfc:006d' is still there, but nothing else).
+    let head_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entity_heads", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        head_count, 0,
+        "No heads should have been seeded due to transaction rollback"
+    );
+
+    let snapshot_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM collection_snapshots", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(snapshot_count, 0, "No snapshot should have been created");
+
+    let block_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM immutable_blocks", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(block_count, 0, "No blocks should have been committed");
 }

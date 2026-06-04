@@ -1,7 +1,7 @@
-use rusqlite::{params, Connection, OptionalExtension};
-use crate::error::Error;
-use crate::model::{GraphemeRevision, AlphabetSnapshot, SnapshotMember};
 use crate::content::encoding::from_dag_cbor;
+use crate::error::Error;
+use crate::model::{AlphabetSnapshot, GraphemeRevision, SnapshotMember};
+use rusqlite::{params, Connection, OptionalExtension};
 
 pub struct Repository<'a> {
     conn: &'a Connection,
@@ -31,11 +31,14 @@ impl<'a> Repository<'a> {
     }
 
     pub fn get_block_bytes(&self, cid: &str) -> Result<Option<Vec<u8>>, Error> {
-        let bytes: Option<Vec<u8>> = self.conn.query_row(
-            "SELECT bytes FROM immutable_blocks WHERE cid = ?1",
-            params![cid],
-            |row| row.get(0),
-        ).optional()?;
+        let bytes: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT bytes FROM immutable_blocks WHERE cid = ?1",
+                params![cid],
+                |row| row.get(0),
+            )
+            .optional()?;
         Ok(bytes)
     }
 
@@ -58,11 +61,14 @@ impl<'a> Repository<'a> {
         label: &str,
     ) -> Result<(), Error> {
         // If entity exists, check if canonical_key or other fields conflict
-        let existing: Option<(String, String)> = self.conn.query_row(
-            "SELECT canonical_key, label FROM entities WHERE entity_id = ?1",
-            params![entity_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        ).optional()?;
+        let existing: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT canonical_key, label FROM entities WHERE entity_id = ?1",
+                params![entity_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
 
         if let Some((existing_key, existing_label)) = existing {
             if existing_key != canonical_key {
@@ -88,11 +94,14 @@ impl<'a> Repository<'a> {
     }
 
     pub fn get_entity_head(&self, entity_id: &str) -> Result<Option<String>, Error> {
-        let head: Option<String> = self.conn.query_row(
-            "SELECT revision_cid FROM entity_heads WHERE entity_id = ?1",
-            params![entity_id],
-            |row| row.get(0),
-        ).optional()?;
+        let head: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT revision_cid FROM entity_heads WHERE entity_id = ?1",
+                params![entity_id],
+                |row| row.get(0),
+            )
+            .optional()?;
         Ok(head)
     }
 
@@ -101,7 +110,7 @@ impl<'a> Repository<'a> {
         let existing = self.get_entity_head(entity_id)?;
         if let Some(ref current) = existing {
             if current != revision_cid {
-                // In Phase 1, we seed deterministic revisions. 
+                // In Phase 1, we seed deterministic revisions.
                 // Setting it to a different revision CID is not allowed or should raise integrity check if it conflicts.
                 // We'll update the head, but log or check if it's seeding conflict.
                 // Actually, the prompt says "If the database already contains conflicting canonical seeded data, do not silently overwrite it; report a clear integrity error."
@@ -129,11 +138,14 @@ impl<'a> Repository<'a> {
         canonical_key: &str,
         label: &str,
     ) -> Result<(), Error> {
-        let existing: Option<(String, String)> = self.conn.query_row(
-            "SELECT canonical_key, label FROM collections WHERE collection_entity_id = ?1",
-            params![collection_entity_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        ).optional()?;
+        let existing: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT canonical_key, label FROM collections WHERE collection_entity_id = ?1",
+                params![collection_entity_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
 
         if let Some((existing_key, existing_label)) = existing {
             if existing_key != canonical_key {
@@ -209,7 +221,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub fn get_active_snapshot_cid(&self, collection_entity_id: &str) -> Result<Option<String>, Error> {
+    pub fn get_active_snapshot_cid(
+        &self,
+        collection_entity_id: &str,
+    ) -> Result<Option<String>, Error> {
         let cid: Option<String> = self.conn.query_row(
             "SELECT snapshot_cid FROM active_collection_snapshots WHERE collection_entity_id = ?1",
             params![collection_entity_id],
@@ -218,7 +233,11 @@ impl<'a> Repository<'a> {
         Ok(cid)
     }
 
-    pub fn set_active_snapshot(&self, collection_entity_id: &str, snapshot_cid: &str) -> Result<(), Error> {
+    pub fn set_active_snapshot(
+        &self,
+        collection_entity_id: &str,
+        snapshot_cid: &str,
+    ) -> Result<(), Error> {
         let existing = self.get_active_snapshot_cid(collection_entity_id)?;
         if let Some(ref current) = existing {
             if current != snapshot_cid {
@@ -263,16 +282,36 @@ impl<'a> Repository<'a> {
     // --- Complex Queries ---
 
     pub fn get_grapheme_revision(&self, revision_cid: &str) -> Result<GraphemeRevision, Error> {
-        let bytes = self.get_block_bytes(revision_cid)?
-            .ok_or_else(|| Error::NotFoundError(format!("Block not found for CID: {}", revision_cid)))?;
-        
+        let bytes = self.get_block_bytes(revision_cid)?.ok_or_else(|| {
+            Error::NotFoundError(format!("Block not found for CID: {}", revision_cid))
+        })?;
+
+        // Assert cryptographic integrity
+        let computed_cid = crate::content::cid::compute_cid(&bytes)?;
+        if computed_cid.to_string() != revision_cid {
+            return Err(Error::IntegrityError(format!(
+                "Integrity check failed: requested CID '{}' but block bytes re-hashed to '{}'",
+                revision_cid, computed_cid
+            )));
+        }
+
         let rev: GraphemeRevision = from_dag_cbor(&bytes)?;
         Ok(rev)
     }
 
     pub fn get_alphabet_snapshot(&self, snapshot_cid: &str) -> Result<AlphabetSnapshot, Error> {
-        let bytes = self.get_block_bytes(snapshot_cid)?
-            .ok_or_else(|| Error::NotFoundError(format!("Block not found for CID: {}", snapshot_cid)))?;
+        let bytes = self.get_block_bytes(snapshot_cid)?.ok_or_else(|| {
+            Error::NotFoundError(format!("Block not found for CID: {}", snapshot_cid))
+        })?;
+
+        // Assert cryptographic integrity
+        let computed_cid = crate::content::cid::compute_cid(&bytes)?;
+        if computed_cid.to_string() != snapshot_cid {
+            return Err(Error::IntegrityError(format!(
+                "Integrity check failed: requested CID '{}' but block bytes re-hashed to '{}'",
+                snapshot_cid, computed_cid
+            )));
+        }
 
         let snap: AlphabetSnapshot = from_dag_cbor(&bytes)?;
         Ok(snap)

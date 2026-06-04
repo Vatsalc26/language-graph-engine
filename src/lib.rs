@@ -1,9 +1,9 @@
-pub mod error;
+pub mod app;
 pub mod config;
 pub mod content;
-pub mod model;
 pub mod db;
-pub mod seed;
+pub mod error;
+pub mod model;
 pub mod resolver;
+pub mod seed;
 pub mod server;
-pub mod app;
