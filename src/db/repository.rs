@@ -1,6 +1,8 @@
 use crate::content::encoding::from_dag_cbor;
 use crate::error::Error;
-use crate::model::{AlphabetSnapshot, GraphemeRevision, SnapshotMember};
+use crate::model::{
+    AlphabetSnapshot, GraphemeRevision, ProfileCollectionRef, SnapshotMember, TextProfileSnapshot,
+};
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub struct Repository<'a> {
@@ -314,6 +316,174 @@ impl<'a> Repository<'a> {
         }
 
         let snap: AlphabetSnapshot = from_dag_cbor(&bytes)?;
+        Ok(snap)
+    }
+
+    // --- Profiles ---
+
+    pub fn insert_profile(
+        &self,
+        profile_entity_id: &str,
+        canonical_key: &str,
+        label: &str,
+    ) -> Result<(), Error> {
+        let existing: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT canonical_key, label FROM text_profiles WHERE profile_entity_id = ?1",
+                params![profile_entity_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+
+        if let Some((existing_key, existing_label)) = existing {
+            if existing_key != canonical_key {
+                return Err(Error::IntegrityError(format!(
+                    "Conflicting canonical key for profile {}: existing='{}', requested='{}'",
+                    profile_entity_id, existing_key, canonical_key
+                )));
+            }
+            if existing_label != label {
+                return Err(Error::IntegrityError(format!(
+                    "Conflicting label for profile {}: existing='{}', requested='{}'",
+                    profile_entity_id, existing_label, label
+                )));
+            }
+        } else {
+            self.conn.execute(
+                "INSERT INTO text_profiles (profile_entity_id, canonical_key, label, created_at)
+                 VALUES (?1, ?2, ?3, datetime('now'))",
+                params![profile_entity_id, canonical_key, label],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn insert_profile_snapshot(
+        &self,
+        snapshot_cid: &str,
+        profile_entity_id: &str,
+    ) -> Result<(), Error> {
+        let exists: bool = self.conn.query_row(
+            "SELECT COUNT(*) FROM text_profile_snapshots WHERE snapshot_cid = ?1",
+            params![snapshot_cid],
+            |row| row.get::<_, i64>(0),
+        )? > 0;
+
+        if !exists {
+            self.conn.execute(
+                "INSERT INTO text_profile_snapshots (snapshot_cid, profile_entity_id, created_at)
+                 VALUES (?1, ?2, datetime('now'))",
+                params![snapshot_cid, profile_entity_id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn insert_profile_snapshot_collection(
+        &self,
+        profile_snapshot_cid: &str,
+        position: i32,
+        collection_entity_id: &str,
+        collection_snapshot_cid: &str,
+    ) -> Result<(), Error> {
+        let existing: Option<String> = self.conn.query_row(
+            "SELECT collection_snapshot_cid FROM text_profile_snapshot_collections WHERE profile_snapshot_cid = ?1 AND position = ?2",
+            params![profile_snapshot_cid, position],
+            |row| row.get(0),
+        ).optional()?;
+
+        if let Some(ref c_cid) = existing {
+            if c_cid != collection_snapshot_cid {
+                return Err(Error::IntegrityError(format!(
+                    "Conflict in profile snapshot collection at position {}: existing collection snapshot='{}', requested='{}'",
+                    position, c_cid, collection_snapshot_cid
+                )));
+            }
+        } else {
+            self.conn.execute(
+                "INSERT INTO text_profile_snapshot_collections (profile_snapshot_cid, position, collection_entity_id, collection_snapshot_cid)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![profile_snapshot_cid, position, collection_entity_id, collection_snapshot_cid],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn set_active_profile_snapshot(
+        &self,
+        profile_entity_id: &str,
+        snapshot_cid: &str,
+    ) -> Result<(), Error> {
+        let existing = self.get_active_profile_snapshot_cid(profile_entity_id)?;
+        if let Some(ref current) = existing {
+            if current != snapshot_cid {
+                return Err(Error::IntegrityError(format!(
+                    "Conflicting active snapshot for profile {}: existing='{}', requested='{}'",
+                    profile_entity_id, current, snapshot_cid
+                )));
+            }
+        } else {
+            self.conn.execute(
+                "INSERT INTO active_text_profile_snapshots (profile_entity_id, snapshot_cid, activated_at)
+                 VALUES (?1, ?2, datetime('now'))",
+                params![profile_entity_id, snapshot_cid],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn get_active_profile_snapshot_cid(
+        &self,
+        profile_entity_id: &str,
+    ) -> Result<Option<String>, Error> {
+        let cid: Option<String> = self.conn.query_row(
+            "SELECT snapshot_cid FROM active_text_profile_snapshots WHERE profile_entity_id = ?1",
+            params![profile_entity_id],
+            |row| row.get(0),
+        ).optional()?;
+        Ok(cid)
+    }
+
+    pub fn get_profile_collections(
+        &self,
+        profile_snapshot_cid: &str,
+    ) -> Result<Vec<ProfileCollectionRef>, Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT position, collection_entity_id, collection_snapshot_cid
+             FROM text_profile_snapshot_collections
+             WHERE profile_snapshot_cid = ?1
+             ORDER BY position ASC",
+        )?;
+        let rows = stmt.query_map([profile_snapshot_cid], |row| {
+            Ok(ProfileCollectionRef {
+                position: row.get(0)?,
+                collection_entity_id: row.get(1)?,
+                snapshot_cid: row.get(2)?,
+            })
+        })?;
+        let mut collections = Vec::new();
+        for collection in rows {
+            collections.push(collection?);
+        }
+        Ok(collections)
+    }
+
+    pub fn get_profile_snapshot(&self, snapshot_cid: &str) -> Result<TextProfileSnapshot, Error> {
+        let bytes = self.get_block_bytes(snapshot_cid)?.ok_or_else(|| {
+            Error::NotFoundError(format!("Block not found for CID: {}", snapshot_cid))
+        })?;
+
+        // Assert cryptographic integrity
+        let computed_cid = crate::content::cid::compute_cid(&bytes)?;
+        if computed_cid.to_string() != snapshot_cid {
+            return Err(Error::IntegrityError(format!(
+                "Integrity check failed: requested CID '{}' but block bytes re-hashed to '{}'",
+                snapshot_cid, computed_cid
+            )));
+        }
+
+        let snap: TextProfileSnapshot = from_dag_cbor(&bytes)?;
         Ok(snap)
     }
 }

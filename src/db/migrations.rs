@@ -87,5 +87,52 @@ pub fn run_migrations(conn: &Connection) -> Result<(), Error> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS text_profiles (
+            profile_entity_id TEXT PRIMARY KEY,
+            canonical_key TEXT NOT NULL UNIQUE,
+            label TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS text_profile_snapshots (
+            snapshot_cid TEXT PRIMARY KEY,
+            profile_entity_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (snapshot_cid) REFERENCES immutable_blocks(cid),
+            FOREIGN KEY (profile_entity_id) REFERENCES text_profiles(profile_entity_id)
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS text_profile_snapshot_collections (
+            profile_snapshot_cid TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            collection_entity_id TEXT NOT NULL,
+            collection_snapshot_cid TEXT NOT NULL,
+            PRIMARY KEY (profile_snapshot_cid, position),
+            UNIQUE (profile_snapshot_cid, collection_entity_id),
+            FOREIGN KEY (profile_snapshot_cid) REFERENCES text_profile_snapshots(snapshot_cid),
+            FOREIGN KEY (collection_entity_id) REFERENCES collections(collection_entity_id),
+            FOREIGN KEY (collection_snapshot_cid) REFERENCES collection_snapshots(snapshot_cid)
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS active_text_profile_snapshots (
+            profile_entity_id TEXT PRIMARY KEY,
+            snapshot_cid TEXT NOT NULL,
+            activated_at TEXT NOT NULL,
+            FOREIGN KEY (profile_entity_id) REFERENCES text_profiles(profile_entity_id),
+            FOREIGN KEY (snapshot_cid) REFERENCES text_profile_snapshots(snapshot_cid)
+        );",
+        [],
+    )?;
+
     Ok(())
 }
