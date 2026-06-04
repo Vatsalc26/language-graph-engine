@@ -9,19 +9,14 @@ use language_graph_engine::db::migrations::run_migrations;
 use language_graph_engine::db::repository::Repository;
 use language_graph_engine::model::GraphemeRevision;
 use language_graph_engine::resolver::text::TextResolver;
+use language_graph_engine::seed::ascii_supplemental::{
+    seed_phase2_1, PROFILE_2_1_ENTITY_ID, SUPPLEMENTAL_COLLECTION_ENTITY_ID,
+};
 use language_graph_engine::seed::lowercase_latin::COLLECTION_ENTITY_ID as LOW_COL_ID;
 use language_graph_engine::seed::phase2::{
-    seed_phase2,
-    UPPERCASE_COLLECTION_ENTITY_ID,
-    DIGITS_COLLECTION_ENTITY_ID,
+    seed_phase2, DIGITS_COLLECTION_ENTITY_ID, PROFILE_ENTITY_ID as PROFILE_2_ENTITY_ID,
+    PUNCTUATION_COLLECTION_ENTITY_ID, UPPERCASE_COLLECTION_ENTITY_ID,
     WHITESPACE_COLLECTION_ENTITY_ID,
-    PUNCTUATION_COLLECTION_ENTITY_ID,
-    PROFILE_ENTITY_ID as PROFILE_2_ENTITY_ID,
-};
-use language_graph_engine::seed::ascii_supplemental::{
-    seed_phase2_1,
-    PROFILE_2_1_ENTITY_ID,
-    SUPPLEMENTAL_COLLECTION_ENTITY_ID,
 };
 use language_graph_engine::server::Server;
 use proptest::prelude::*;
@@ -31,9 +26,12 @@ use unicode_normalization::UnicodeNormalization;
 
 // Golden CIDs
 const GOLDEN_LOW_SNAP_CID: &str = "bafyreib4ivpoazb5skkr7yvfelvoowz6sxxncdsjewvxawyedm5tikeshm";
-const GOLDEN_PROFILE_2_SNAP_CID: &str = "bafyreic5acpnm6zr4cp6jl3xm425kwft77qegml2mhxftrwclkelnqplry";
-const GOLDEN_PROFILE_2_1_SNAP_CID: &str = "bafyreidfdj3hw7gv5rt7bpsfkrkhuptprcjlwzpaq3yektnztec4caqdn4";
-const GOLDEN_SUPPLEMENTAL_SNAP_CID: &str = "bafyreiaczeqz45ypyr53lbmyyar3ppquj2zusctubs4wqmhaqxxxnjl6zm";
+const GOLDEN_PROFILE_2_SNAP_CID: &str =
+    "bafyreic5acpnm6zr4cp6jl3xm425kwft77qegml2mhxftrwclkelnqplry";
+const GOLDEN_PROFILE_2_1_SNAP_CID: &str =
+    "bafyreidfdj3hw7gv5rt7bpsfkrkhuptprcjlwzpaq3yektnztec4caqdn4";
+const GOLDEN_SUPPLEMENTAL_SNAP_CID: &str =
+    "bafyreiaczeqz45ypyr53lbmyyar3ppquj2zusctubs4wqmhaqxxxnjl6zm";
 
 fn get_temp_db() -> Connection {
     let conn = Connection::open_in_memory().expect("Failed to open in-memory SQLite");
@@ -65,7 +63,7 @@ fn make_revision(ch: char, script: &str, case: &str) -> GraphemeRevision {
 #[test]
 fn test_regression_phase1_and_phase2_cids_unchanged() {
     let mut conn = get_temp_db();
-    
+
     // Seeding Phase 2 yields the same Phase 2 profile CID
     let p2_cid = seed_phase2(&mut conn).unwrap();
     assert_eq!(p2_cid, GOLDEN_PROFILE_2_SNAP_CID);
@@ -79,11 +77,36 @@ fn test_regression_phase1_and_phase2_cids_unchanged() {
 fn test_deterministic_new_symbol_cids() {
     // Assert on deterministic CIDs of a few key supplemental symbols
     let test_cases = vec![
-        ('#', "Common", "none", "bafyreiajj25zb3zic6pcu7655fsk4a7mvclwgiof3i44eovx2zxodioo7m"),
-        ('$', "Common", "none", "bafyreidh4oihmqyykdz7dwsvy4yndkg7ihw4hf3jcn3h2z46fqr5pldznu"),
-        ('\\', "Common", "none", "bafyreigsg5oxzm26o4v35tpamxbbg2xrgc65a32x44zxpawxyqssata6cm"),
-        ('`', "Common", "none", "bafyreibvmqwgeanqyomvln2zs2ixjw2jystszzpccukyzcz433nsdmyvke"),
-        ('~', "Common", "none", "bafyreicx2xpvp2d4gzijs7q3irpd56ymjooalnyzwvkpypaeblzkoken4e"),
+        (
+            '#',
+            "Common",
+            "none",
+            "bafyreiajj25zb3zic6pcu7655fsk4a7mvclwgiof3i44eovx2zxodioo7m",
+        ),
+        (
+            '$',
+            "Common",
+            "none",
+            "bafyreidh4oihmqyykdz7dwsvy4yndkg7ihw4hf3jcn3h2z46fqr5pldznu",
+        ),
+        (
+            '\\',
+            "Common",
+            "none",
+            "bafyreigsg5oxzm26o4v35tpamxbbg2xrgc65a32x44zxpawxyqssata6cm",
+        ),
+        (
+            '`',
+            "Common",
+            "none",
+            "bafyreibvmqwgeanqyomvln2zs2ixjw2jystszzpccukyzcz433nsdmyvke",
+        ),
+        (
+            '~',
+            "Common",
+            "none",
+            "bafyreicx2xpvp2d4gzijs7q3irpd56ymjooalnyzwvkpypaeblzkoken4e",
+        ),
     ];
 
     for (ch, script, case, expected_cid) in test_cases {
@@ -108,7 +131,7 @@ fn test_collection_snapshot_cids() {
 
     let supp_members = repo.get_snapshot_members(&supp_snap).unwrap();
     assert_eq!(supp_members.len(), 21);
-    
+
     // First member is '#'
     assert_eq!(
         supp_members[0].entity_id,
@@ -270,14 +293,8 @@ fn test_resolver_unsupported_validation_errors() {
                 "” U+201d RIGHT DOUBLE QUOTATION MARK at position 7",
             ],
         ),
-        (
-            "Line\nbreak",
-            vec!["\n U+000A NEWLINE at position 5"],
-        ),
-        (
-            "Tab\tcharacter",
-            vec!["\t U+0009 TAB at position 4"],
-        ),
+        ("Line\nbreak", vec!["\n U+000A NEWLINE at position 5"]),
+        ("Tab\tcharacter", vec!["\t U+0009 TAB at position 4"]),
     ];
 
     for (input, expected_err_parts) in invalid_inputs {
@@ -392,7 +409,10 @@ async fn test_http_api_phase2_1_endpoints() {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let status_json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(status_json["symbolCount"], 95);
-    assert_eq!(status_json["activeSnapshotCid"], GOLDEN_PROFILE_2_1_SNAP_CID);
+    assert_eq!(
+        status_json["activeSnapshotCid"],
+        GOLDEN_PROFILE_2_1_SNAP_CID
+    );
 
     // 2. GET /api/collections returns 6 collections
     let response = app
@@ -436,7 +456,8 @@ async fn test_http_api_phase2_1_endpoints() {
                 .uri("/api/resolve")
                 .header("Content-Type", "application/json")
                 .body(Body::from(
-                    serde_json::to_vec(&serde_json::json!({ "text": "Hello, #Vatsal! +~`" })).unwrap(),
+                    serde_json::to_vec(&serde_json::json!({ "text": "Hello, #Vatsal! +~`" }))
+                        .unwrap(),
                 ))
                 .unwrap(),
         )

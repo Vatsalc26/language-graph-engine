@@ -2,20 +2,20 @@ use crate::content::cid::compute_cid;
 use crate::content::encoding::to_dag_cbor;
 use crate::db::repository::Repository;
 use crate::error::Error;
-use crate::model::{AlphabetSnapshot, GraphemeRevision, SnapshotMember, ProfileCollectionRef, TextProfileSnapshot};
+use crate::model::{
+    AlphabetSnapshot, GraphemeRevision, ProfileCollectionRef, SnapshotMember, TextProfileSnapshot,
+};
 use crate::seed::lowercase_latin::COLLECTION_ENTITY_ID as LOW_COL_ID;
 use crate::seed::phase2::{
-    seed_phase2,
-    UPPERCASE_COLLECTION_ENTITY_ID,
-    DIGITS_COLLECTION_ENTITY_ID,
-    WHITESPACE_COLLECTION_ENTITY_ID,
-    PUNCTUATION_COLLECTION_ENTITY_ID,
+    seed_phase2, DIGITS_COLLECTION_ENTITY_ID, PUNCTUATION_COLLECTION_ENTITY_ID,
+    UPPERCASE_COLLECTION_ENTITY_ID, WHITESPACE_COLLECTION_ENTITY_ID,
 };
 use rusqlite::Connection;
 use unicode_normalization::UnicodeNormalization;
 
 pub const PROFILE_2_1_ENTITY_ID: &str = "urn:language-graph:profile:printable-ascii-text";
-pub const SUPPLEMENTAL_COLLECTION_ENTITY_ID: &str = "urn:language-graph:collection:ascii-supplemental-symbols";
+pub const SUPPLEMENTAL_COLLECTION_ENTITY_ID: &str =
+    "urn:language-graph:collection:ascii-supplemental-symbols";
 
 pub fn seed_phase2_1(conn: &mut Connection) -> Result<String, Error> {
     // 1. First seed Phase 2 (which seeds Phase 1 lowercase too, and commits transactions)
@@ -35,27 +35,132 @@ pub fn seed_phase2_1(conn: &mut Connection) -> Result<String, Error> {
 
     // 3. Seed 21 supplemental ASCII symbols
     let supplemental_chars = vec![
-        ('#', "Common".to_string(), "none".to_string(), "NUMBER SIGN".to_string()),
-        ('$', "Common".to_string(), "none".to_string(), "DOLLAR SIGN".to_string()),
-        ('%', "Common".to_string(), "none".to_string(), "PERCENT SIGN".to_string()),
-        ('&', "Common".to_string(), "none".to_string(), "AMPERSAND".to_string()),
-        ('*', "Common".to_string(), "none".to_string(), "ASTERISK".to_string()),
-        ('+', "Common".to_string(), "none".to_string(), "PLUS SIGN".to_string()),
-        ('/', "Common".to_string(), "none".to_string(), "SOLIDUS".to_string()),
-        ('<', "Common".to_string(), "none".to_string(), "LESS-THAN SIGN".to_string()),
-        ('=', "Common".to_string(), "none".to_string(), "EQUALS SIGN".to_string()),
-        ('>', "Common".to_string(), "none".to_string(), "GREATER-THAN SIGN".to_string()),
-        ('@', "Common".to_string(), "none".to_string(), "COMMERCIAL AT".to_string()),
-        ('[', "Common".to_string(), "none".to_string(), "LEFT SQUARE BRACKET".to_string()),
-        ('\\', "Common".to_string(), "none".to_string(), "REVERSE SOLIDUS".to_string()),
-        (']', "Common".to_string(), "none".to_string(), "RIGHT SQUARE BRACKET".to_string()),
-        ('^', "Common".to_string(), "none".to_string(), "CIRCUMFLEX ACCENT".to_string()),
-        ('_', "Common".to_string(), "none".to_string(), "LOW LINE".to_string()),
-        ('`', "Common".to_string(), "none".to_string(), "GRAVE ACCENT".to_string()),
-        ('{', "Common".to_string(), "none".to_string(), "LEFT CURLY BRACKET".to_string()),
-        ('|', "Common".to_string(), "none".to_string(), "VERTICAL LINE".to_string()),
-        ('}', "Common".to_string(), "none".to_string(), "RIGHT CURLY BRACKET".to_string()),
-        ('~', "Common".to_string(), "none".to_string(), "TILDE".to_string()),
+        (
+            '#',
+            "Common".to_string(),
+            "none".to_string(),
+            "NUMBER SIGN".to_string(),
+        ),
+        (
+            '$',
+            "Common".to_string(),
+            "none".to_string(),
+            "DOLLAR SIGN".to_string(),
+        ),
+        (
+            '%',
+            "Common".to_string(),
+            "none".to_string(),
+            "PERCENT SIGN".to_string(),
+        ),
+        (
+            '&',
+            "Common".to_string(),
+            "none".to_string(),
+            "AMPERSAND".to_string(),
+        ),
+        (
+            '*',
+            "Common".to_string(),
+            "none".to_string(),
+            "ASTERISK".to_string(),
+        ),
+        (
+            '+',
+            "Common".to_string(),
+            "none".to_string(),
+            "PLUS SIGN".to_string(),
+        ),
+        (
+            '/',
+            "Common".to_string(),
+            "none".to_string(),
+            "SOLIDUS".to_string(),
+        ),
+        (
+            '<',
+            "Common".to_string(),
+            "none".to_string(),
+            "LESS-THAN SIGN".to_string(),
+        ),
+        (
+            '=',
+            "Common".to_string(),
+            "none".to_string(),
+            "EQUALS SIGN".to_string(),
+        ),
+        (
+            '>',
+            "Common".to_string(),
+            "none".to_string(),
+            "GREATER-THAN SIGN".to_string(),
+        ),
+        (
+            '@',
+            "Common".to_string(),
+            "none".to_string(),
+            "COMMERCIAL AT".to_string(),
+        ),
+        (
+            '[',
+            "Common".to_string(),
+            "none".to_string(),
+            "LEFT SQUARE BRACKET".to_string(),
+        ),
+        (
+            '\\',
+            "Common".to_string(),
+            "none".to_string(),
+            "REVERSE SOLIDUS".to_string(),
+        ),
+        (
+            ']',
+            "Common".to_string(),
+            "none".to_string(),
+            "RIGHT SQUARE BRACKET".to_string(),
+        ),
+        (
+            '^',
+            "Common".to_string(),
+            "none".to_string(),
+            "CIRCUMFLEX ACCENT".to_string(),
+        ),
+        (
+            '_',
+            "Common".to_string(),
+            "none".to_string(),
+            "LOW LINE".to_string(),
+        ),
+        (
+            '`',
+            "Common".to_string(),
+            "none".to_string(),
+            "GRAVE ACCENT".to_string(),
+        ),
+        (
+            '{',
+            "Common".to_string(),
+            "none".to_string(),
+            "LEFT CURLY BRACKET".to_string(),
+        ),
+        (
+            '|',
+            "Common".to_string(),
+            "none".to_string(),
+            "VERTICAL LINE".to_string(),
+        ),
+        (
+            '}',
+            "Common".to_string(),
+            "none".to_string(),
+            "RIGHT CURLY BRACKET".to_string(),
+        ),
+        (
+            '~',
+            "Common".to_string(),
+            "none".to_string(),
+            "TILDE".to_string(),
+        ),
     ];
 
     let supplemental_snapshot_cid = seed_supplemental_collection(

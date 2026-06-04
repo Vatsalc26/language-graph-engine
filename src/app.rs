@@ -36,8 +36,7 @@ impl AppState {
         };
         println!(
             "Database successfully seeded ({}). Active snapshot CID: {}",
-            config.seed_phase,
-            active_snap_cid
+            config.seed_phase, active_snap_cid
         );
 
         // Load resolver

@@ -31,13 +31,15 @@ fn bench_resolver_ops(c: &mut Criterion) {
     });
 
     // 3. Resolve a medium valid input (~1,000 graphemes)
-    let medium_input = "Hello, #Vatsal! Room 101: Is this working? (Phase 2.1) - 2026! +~` ".repeat(15);
+    let medium_input =
+        "Hello, #Vatsal! Room 101: Is this working? (Phase 2.1) - 2026! +~` ".repeat(15);
     c.bench_function("resolver_medium_1k_chars", |b| {
         b.iter(|| resolver.resolve(&medium_input).unwrap())
     });
 
     // 4. Resolve a larger valid input (~100,000 graphemes)
-    let large_input = "Hello, #Vatsal! Room 101: Is this working? (Phase 2.1) - 2026! +~` ".repeat(1500);
+    let large_input =
+        "Hello, #Vatsal! Room 101: Is this working? (Phase 2.1) - 2026! +~` ".repeat(1500);
     c.bench_function("resolver_large_100k_chars", |b| {
         b.iter(|| resolver.resolve(&large_input).unwrap())
     });

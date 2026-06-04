@@ -86,16 +86,33 @@ pub fn get_display_name(grapheme: &str) -> String {
         "|" => "VERTICAL LINE".to_string(),
         "}" => "RIGHT CURLY BRACKET".to_string(),
         "~" => "TILDE".to_string(),
-        c if c.chars().next().map(|ch| ch.is_ascii_digit()).unwrap_or(false) => {
-            let digit_names = ["ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE"];
+        c if c
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_digit())
+            .unwrap_or(false) =>
+        {
+            let digit_names = [
+                "ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE",
+            ];
             let idx = c.chars().next().unwrap() as usize - '0' as usize;
             format!("DIGIT {}", digit_names[idx])
         }
-        c if c.chars().next().map(|ch| ch.is_ascii_uppercase()).unwrap_or(false) => {
+        c if c
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_uppercase())
+            .unwrap_or(false) =>
+        {
             let ch = c.chars().next().unwrap();
             format!("LATIN CAPITAL LETTER {}", ch)
         }
-        c if c.chars().next().map(|ch| ch.is_ascii_lowercase()).unwrap_or(false) => {
+        c if c
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_lowercase())
+            .unwrap_or(false) =>
+        {
             let ch = c.chars().next().unwrap();
             format!("LATIN SMALL LETTER {}", ch)
         }
@@ -106,12 +123,27 @@ pub fn get_display_name(grapheme: &str) -> String {
 pub fn get_category(grapheme: &str) -> String {
     match grapheme {
         " " => "whitespace".to_string(),
-        "." | "," | "?" | "!" | "'" | "\"" | "-" | ":" | ";" | "(" | ")" => "punctuation".to_string(),
-        "#" | "$" | "%" | "&" | "*" | "+" | "/" | "<" | "=" | ">" | "@" | "[" | "\\" | "]" | "^" | "_" | "`" | "{" | "|" | "}" | "~" => {
-            "ascii-supplemental-symbol".to_string()
+        "." | "," | "?" | "!" | "'" | "\"" | "-" | ":" | ";" | "(" | ")" => {
+            "punctuation".to_string()
         }
-        c if c.chars().next().map(|ch| ch.is_ascii_digit()).unwrap_or(false) => "digit".to_string(),
-        c if c.chars().next().map(|ch| ch.is_alphabetic()).unwrap_or(false) => "letter".to_string(),
+        "#" | "$" | "%" | "&" | "*" | "+" | "/" | "<" | "=" | ">" | "@" | "[" | "\\" | "]"
+        | "^" | "_" | "`" | "{" | "|" | "}" | "~" => "ascii-supplemental-symbol".to_string(),
+        c if c
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_digit())
+            .unwrap_or(false) =>
+        {
+            "digit".to_string()
+        }
+        c if c
+            .chars()
+            .next()
+            .map(|ch| ch.is_alphabetic())
+            .unwrap_or(false) =>
+        {
+            "letter".to_string()
+        }
         _ => "unknown".to_string(),
     }
 }
@@ -139,7 +171,9 @@ impl TextResolver {
         let repo = Repository::new(conn);
 
         // 1. Try to load the active Printable ASCII profile snapshot first
-        if let Some(active_profile_cid) = repo.get_active_profile_snapshot_cid(PROFILE_2_1_ENTITY_ID)? {
+        if let Some(active_profile_cid) =
+            repo.get_active_profile_snapshot_cid(PROFILE_2_1_ENTITY_ID)?
+        {
             let profile = repo.get_profile_snapshot(&active_profile_cid)?;
             let mut cache = HashMap::new();
 
@@ -203,13 +237,11 @@ impl TextResolver {
         }
 
         // 3. Fallback to lowercase alphabet if no profile is active (Phase 1 legacy compatibility)
-        let active_cid = repo
-            .get_active_snapshot_cid(LOW_COL_ID)?
-            .ok_or_else(|| {
-                Error::NotFoundError(
-                    "No active snapshot found for lowercase latin alphabet".to_string(),
-                )
-            })?;
+        let active_cid = repo.get_active_snapshot_cid(LOW_COL_ID)?.ok_or_else(|| {
+            Error::NotFoundError(
+                "No active snapshot found for lowercase latin alphabet".to_string(),
+            )
+        })?;
 
         let members = repo.get_snapshot_members(&active_cid)?;
         let mut cache = HashMap::new();
@@ -260,7 +292,7 @@ impl TextResolver {
                     let name = get_unsupported_char_name(ch);
                     format!("{} {} {}", g, hex, name)
                 } else {
-                    format!("{}", g)
+                    g.to_string()
                 };
                 unsupported.push(format!("{} at position {}", name_info, idx + 1));
             }
