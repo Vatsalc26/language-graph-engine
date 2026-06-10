@@ -1,0 +1,51 @@
+use crate::config::Config;
+use crate::db::migrations::run_migrations;
+use crate::error::Error;
+use crate::resolver::text::TextResolver;
+use rusqlite::Connection;
+use std::sync::{Arc, Mutex};
+
+pub struct AppStateInner {
+    pub conn: Connection,
+    pub resolver: TextResolver,
+    pub config: Config,
+}
+
+#[derive(Clone)]
+pub struct AppState(pub Arc<Mutex<AppStateInner>>);
+
+impl AppState {
+    pub fn new(config: Config) -> Result<Self, Error> {
+        // Ensure data directory exists
+        if let Some(parent) = config.db_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                Error::NotFoundError(format!("Failed to create DB directory: {:?}", e))
+            })?;
+        }
+
+        let mut conn = Connection::open(&config.db_path)?;
+
+        // Run migrations
+        run_migrations(&conn)?;
+
+        // Seed data
+        let active_snap_cid = match config.seed_phase.as_str() {
+            "phase1" => crate::seed::lowercase_latin::seed_lowercase_latin(&mut conn)?,
+            "phase2" => crate::seed::phase2::seed_phase2(&mut conn)?,
+            _ => crate::seed::ascii_supplemental::seed_phase2_1(&mut conn)?,
+        };
+        println!(
+            "Database successfully seeded ({}). Active snapshot CID: {}",
+            config.seed_phase, active_snap_cid
+        );
+
+        // Load resolver
+        let resolver = TextResolver::load(&conn)?;
+
+        Ok(Self(Arc::new(Mutex::new(AppStateInner {
+            conn,
+            resolver,
+            config,
+        }))))
+    }
+}

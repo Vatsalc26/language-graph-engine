@@ -1,0 +1,52 @@
+name: Language Graph Engine CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Run Quality Gates
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Rust Toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache Cargo Registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Formatting Check
+      run: cargo fmt --all -- --check
+
+    - name: Clippy Linting Check
+      run: cargo clippy --all-targets --all-features -- -D warnings
+
+    - name: Run Automated Tests
+      run: cargo test --all-targets
+
+    - name: Run Documentation Tests
+      run: cargo test --doc
+
+    - name: Compile Benchmarks
+      run: cargo bench --no-run

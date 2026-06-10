@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Language Graph Engine</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>Language Graph Engine</h1>
+            <div class="subtitle">Phase 2.1: Printable ASCII Text Profile</div>
+        </header>
+
+        <!-- Active Snapshot Summary -->
+        <section class="card" id="snapshot-summary">
+            <div class="card-title">
+                Active Profile Summary
+            </div>
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="status-label">Profile Name</span>
+                    <span class="status-value" id="collection-name">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Active Profile Snapshot CID</span>
+                    <span class="status-value">
+                        <span class="cid-badge" id="snapshot-cid" onclick="copyText(this.innerText)">Loading...</span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Identifier Format</span>
+                    <span class="status-value" id="identifier-format">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Total Supported Written Symbols</span>
+                    <span class="status-value" id="symbol-count">Loading...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Collections Registry -->
+        <section class="card" id="collections-registry">
+            <div class="card-title">Collections Registry</div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Collection</th>
+                            <th>Symbol Count</th>
+                            <th>Snapshot CID</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="collections-registry-body">
+                        <!-- 6 collections injected here -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Main Workspace: Resolver & Registry Side-by-Side/Stack -->
+        <div class="grid-2">
+            <!-- Resolve Input Card -->
+            <section class="card">
+                <div class="card-title">Resolve Input</div>
+                <div class="form-group">
+                    <label for="resolve-input" style="font-size: 0.95rem; color: var(--text-secondary);">
+                        Resolve text using the active Printable ASCII Text Profile
+                    </label>
+                    <textarea id="resolve-input" placeholder="Type printable ASCII text, for example: email@example.com" oninput="clearError()"></textarea>
+                    <button class="btn" id="resolve-btn" onclick="resolveInput()">Resolve</button>
+                </div>
+                
+                <!-- Error Notice -->
+                <div class="validation-error" id="error-notice"></div>
+
+                <!-- Resolution Trace Result -->
+                <div id="resolution-result" style="display: none; margin-top: 1.5rem;">
+                    <div style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
+                        <div><strong>Input:</strong> <span id="res-input-text"></span></div>
+                        <div><strong>Output:</strong> <span id="res-output-text"></span></div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                            <strong>Active Profile Snapshot CID:</strong> <span id="res-snap-cid" style="font-family: monospace;"></span>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Position</th>
+                                    <th>Input Grapheme</th>
+                                    <th>Display Name</th>
+                                    <th>Category</th>
+                                    <th>Source Collection</th>
+                                    <th>Entity ID</th>
+                                    <th>Revision CID</th>
+                                    <th>Surface Form</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resolution-trace-body">
+                                <!-- Trace lines injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Symbol Registry Card -->
+            <section class="card">
+                <div class="card-title">Symbol Registry</div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Surface Form</th>
+                                <th>Display Name</th>
+                                <th>Category</th>
+                                <th>Source Collection</th>
+                                <th>Entity ID</th>
+                                <th>Revision CID</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="symbol-registry-body">
+                            <!-- 74 items injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- Phase 3: English Words Workspace -->
+        <div class="grid-2" id="english-words-workspace">
+            <!-- Left Panel: Summary & Composer & Publish -->
+            <div style="display: flex; flex-direction: column; gap: 2rem;">
+                <!-- Live Store Summary -->
+                <section class="card">
+                    <div class="card-title">English Words Store Summary</div>
+                    <div class="status-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div class="status-item">
+                            <span class="status-label">Store Name</span>
+                            <span class="status-value">English Natural-Language Written Forms</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Admission Policy</span>
+                            <span class="status-value" style="font-size: 0.95rem;">Letters with internal apostrophe/hyphen</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Saved Written Forms</span>
+                            <span class="status-value" id="store-word-count">0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Published Snapshot CID</span>
+                            <span class="status-value" id="store-snapshot-cid" style="font-size: 0.85rem; font-family: monospace;">Not yet published</span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1.5rem;">
+                        <button class="btn" onclick="publishStoreSnapshot()">Publish English Words Snapshot</button>
+                        <div id="publish-result-box" style="display: none; margin-top: 1rem; padding: 0.75rem; background: rgba(16, 185, 129, 0.15); border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <div><strong>Published Snapshot CID:</strong> <span id="pub-snap-cid" style="font-family: monospace; font-size: 0.85rem; word-break: break-all;"></span></div>
+                            <div><strong>Members count:</strong> <span id="pub-snap-count"></span></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Compose & Save Section -->
+                <section class="card">
+                    <div class="card-title">Compose &amp; Save</div>
+                    <div class="form-group">
+                        <label for="compose-input" style="font-size: 0.95rem; color: var(--text-secondary);">
+                            Compose a natural-language written form
+                        </label>
+                        <input type="text" id="compose-input" placeholder="Type a word, for example: bank or can't" style="width: 100%; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--card-border); border-radius: 10px; color: var(--text-primary); padding: 0.85rem; font-family: var(--font-sans); font-size: 1.1rem; outline: none; margin-bottom: 1rem;" oninput="clearComposeError()">
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn" style="flex: 1;" onclick="previewWordform()">Preview Composition</button>
+                            <button class="btn" style="flex: 1; background: var(--success);" onclick="saveWordform()">Save Written Form</button>
+                        </div>
+                    </div>
+
+                    <!-- Compose Error -->
+                    <div class="validation-error" id="compose-error-notice"></div>
+
+                    <!-- Compose Result Preview -->
+                    <div id="compose-preview-result" style="display: none; margin-top: 1.5rem; padding: 1rem; background: rgba(255, 255, 255, 0.02); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                        <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.25rem;">Preview Details</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.9rem;">
+                            <div><strong>Candidate:</strong> <span id="prev-candidate"></span></div>
+                            <div><strong>Eligibility:</strong> <span id="prev-eligibility"></span></div>
+                            <div><strong>Profile Used:</strong> <span id="prev-profile">Printable ASCII Text Profile</span></div>
+                            <div><strong>Permanent Status:</strong> <span id="prev-status"></span></div>
+                        </div>
+                        <div style="margin-top: 0.75rem;">
+                            <strong>Composition:</strong> <span id="prev-composition" style="font-family: monospace; color: #a5b4fc;"></span>
+                        </div>
+                    </div>
+
+                    <!-- Save Result Box -->
+                    <div id="compose-save-result" style="display: none; margin-top: 1.5rem; padding: 1rem; background: rgba(16, 185, 129, 0.1); border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                        <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid rgba(16, 185, 129, 0.2); padding-bottom: 0.25rem; color: #34d399;">Saved Result</h4>
+                        <div style="font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.25rem;">
+                            <div><strong>Saved Written Form:</strong> <span id="save-surface"></span></div>
+                            <div><strong>Entity ID:</strong> <span id="save-entity-id" style="font-family: monospace; font-size: 0.8rem;"></span></div>
+                            <div><strong>Revision CID:</strong> <span id="save-revision-cid" style="font-family: monospace; font-size: 0.8rem;"></span></div>
+                            <div><strong>Store:</strong> <span id="save-store"></span></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Panel: Store Browser/Search -->
+            <section class="card" style="display: flex; flex-direction: column;">
+                <div class="card-title">English Words Store Browser</div>
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                    <input type="text" id="search-input" placeholder="Exact lookup surface form..." style="flex: 1; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--card-border); border-radius: 10px; color: var(--text-primary); padding: 0.6rem 0.85rem; font-family: var(--font-sans); font-size: 0.95rem; outline: none;">
+                    <button class="btn" style="padding: 0.6rem 1.2rem;" onclick="lookupWordform()">Lookup</button>
+                    <button class="btn" style="padding: 0.6rem 1.2rem; background: rgba(255,255,255,0.05); color: #fff;" onclick="resetBrowser()">Reset</button>
+                </div>
+                <div class="table-wrapper" style="flex: 1;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Surface Form</th>
+                                <th>Entity ID</th>
+                                <th>Revision CID</th>
+                                <th>Components</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="store-browser-body">
+                            <!-- Stored words dynamically listed here -->
+                        </tbody>
+                    </table>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding: 0.25rem;">
+                    <button class="btn" id="prev-page-btn" style="padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="changePage(-1)">Previous</button>
+                    <span id="page-indicator" style="font-size: 0.9rem; color: var(--text-secondary);">Page 1</span>
+                    <button class="btn" id="next-page-btn" style="padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="changePage(1)">Next</button>
+                </div>
+            </section>
+        </div>
+
+        <!-- Phase 3.1: Dictionary Population Workspace -->
+        <section class="card" id="dictionary-population-workspace" style="margin-top: 2rem;">
+            <div class="card-title">Dictionary Population</div>
+            <div class="grid-2" style="gap: 2rem; margin-top: 1rem;">
+                <!-- Left panel: upload & config -->
+                <div>
+                    <div style="margin-bottom: 1.5rem; padding: 1rem; background: rgba(255, 255, 255, 0.02); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                        <h4 style="margin-bottom: 0.5rem; color: #fff;">Selected Source</h4>
+                        <div style="font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.25rem; color: var(--text-secondary);">
+                            <div><strong>Provider:</strong> English Speller Database (ESDB)</div>
+                            <div><strong>Release Tag:</strong> rel-2026.02.25</div>
+                            <div><strong>File Name:</strong> en_US.txt</div>
+                            <div><strong>Expected Count:</strong> 109,902 entries</div>
+                            <div><strong>Policy:</strong> ASCII letters with internal apostrophes/hyphens</div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="esdb-file-input" style="font-size: 0.95rem; color: var(--text-secondary); display: block; margin-bottom: 0.5rem;">
+                            Select ESDB en_US.txt File
+                        </label>
+                        <input type="file" id="esdb-file-input" accept=".txt" style="display: block; width: 100%; margin-bottom: 1.5rem; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--card-border); border-radius: 8px; color: #fff;">
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn" style="flex: 1;" onclick="analyzeImportFile()">Analyze Import File</button>
+                            <button class="btn" style="flex: 1; background: var(--success);" id="import-btn" disabled onclick="executeImportFile()">Import Eligible Words</button>
+                        </div>
+                    </div>
+                    <!-- Status or progress -->
+                    <div id="import-progress-notice" style="display: none; margin-top: 1rem; font-size: 0.9rem; color: #f59e0b;"></div>
+                </div>
+
+                <!-- Right panel: Dry run or import report details -->
+                <div>
+                    <div id="import-report-box" style="display: none; padding: 1.2rem; background: rgba(255, 255, 255, 0.02); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05); height: 100%; display: flex; flex-direction: column; justify-content: space-between;">
+                        <div>
+                            <h4 id="report-title" style="margin-bottom: 0.75rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.5rem; color: #34d399;">Analysis/Import Report</h4>
+                            <div class="status-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                                <div class="status-item">
+                                    <span class="status-label">Entries Read</span>
+                                    <span class="status-value" id="rep-entries-read">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Eligible New</span>
+                                    <span class="status-value" id="rep-eligible-new">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Eligible Reused</span>
+                                    <span class="status-value" id="rep-eligible-reused">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Deferred Count</span>
+                                    <span class="status-value" id="rep-deferred">0</span>
+                                </div>
+                                <div class="status-item" style="grid-column: span 2;">
+                                    <span class="status-label">File SHA-256 Digest</span>
+                                    <span class="status-value" id="rep-digest" style="font-family: monospace; font-size: 0.8rem; word-break: break-all;"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="manifest-info-box" style="display: none; padding-top: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.85rem;">
+                            <div><strong>Snapshot CID:</strong> <span class="cid-badge" id="rep-snapshot-cid" onclick="copyText(this.innerText)"></span></div>
+                            <div style="margin-top: 0.25rem;"><strong>Import Manifest CID:</strong> <span class="cid-badge" id="rep-manifest-cid" onclick="copyText(this.innerText)"></span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Deferred entries viewer -->
+            <div id="deferred-entries-panel" style="display: none; margin-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.5rem;">
+                <h4 style="margin-bottom: 0.75rem; color: #fff;">Deferred Source Entries</h4>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Source Spelling</th>
+                                <th>Reason Code</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="deferred-entries-body">
+                        </tbody>
+                    </table>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+                    <button class="btn" id="prev-def-btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="changeDeferredPage(-1)">Previous</button>
+                    <span id="def-page-indicator" style="font-size: 0.85rem; color: var(--text-secondary);">Page 1</span>
+                    <button class="btn" id="next-def-btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="changeDeferredPage(1)">Next</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Immutable Object Details (Expandable Pane) -->
+        <section class="card" id="details-section" style="display: none;">
+            <div class="card-title">Immutable Object Details</div>
+            
+            <div class="detail-panel" id="grapheme-detail-panel" style="display: flex;">
+                <div class="detail-header">
+                    <h3 id="detail-object-title">Symbol Revision Details</h3>
+                    <button class="close-detail" onclick="closeDetails()">&times;</button>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-row">
+                        <span>Stable Entity ID</span>
+                        <span id="det-entity-id"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Revision CID</span>
+                        <span id="det-revision-cid"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Surface Form</span>
+                        <span id="det-surface-form"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Normalized Form</span>
+                        <span id="det-normalized-form"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Unicode Scalar</span>
+                        <span id="det-unicode-scalar"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Script</span>
+                        <span id="det-script"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Case</span>
+                        <span id="det-case"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Codec</span>
+                        <span id="det-codec"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Multihash Format</span>
+                        <span id="det-multihash"></span>
+                    </div>
+                </div>
+                <pre id="det-raw-json"></pre>
+            </div>
+
+            <!-- Phase 3: Written Form Detail Panel -->
+            <div class="detail-panel" id="word-detail-panel" style="display: none; flex-direction: column; gap: 1rem; animation: fadeIn 0.4s ease;">
+                <div class="detail-header">
+                    <h3 id="word-detail-title">Written Form Details</h3>
+                    <button class="close-detail" onclick="closeDetails()">&times;</button>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-row">
+                        <span>Written Form</span>
+                        <span id="word-det-surface" style="font-size: 1.15rem; font-weight: 600; color: #a5b4fc;"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Entity ID</span>
+                        <span id="word-det-entity-id"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Revision CID</span>
+                        <span id="word-det-revision-cid"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Composition Profile Snapshot CID</span>
+                        <span id="word-det-profile-cid"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Sources / Attestations</span>
+                        <span id="word-det-sources" style="color: #34d399; font-weight: 500;"></span>
+                    </div>
+                </div>
+                <div class="table-wrapper" style="margin-top: 1rem;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Position</th>
+                                <th>Symbol</th>
+                                <th>Symbol Entity ID</th>
+                                <th>Symbol Revision CID</th>
+                            </tr>
+                        </thead>
+                        <tbody id="word-det-components-body">
+                            <!-- Components trace injected here -->
+                        </tbody>
+                    </table>
+                </div>
+                <pre id="word-det-raw-json" style="margin-top: 1rem;"></pre>
+            </div>
+        </section>
+    </div>
+
+    <!-- UI Logic Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
