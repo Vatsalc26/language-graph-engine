@@ -16,7 +16,7 @@
 
 use candle_core::Device;
 use language_graph_engine::hdc_engine::{
-    build_scene, build_query, resolve_query, HdcBridge, WorkingMemory,
+    build_scene, build_query, resolve_query, parse_sentence_to_scene, resolve_time_query, HdcBridge, WorkingMemory,
 };
 
 #[test]
@@ -98,4 +98,56 @@ fn test_query_resolution() {
     let retrieved_cid = resolve_query(&query, "subject", &wm, &bridge).unwrap();
     
     assert_eq!(retrieved_cid, wolf_cid);
+}
+
+#[test]
+fn test_sequential_ingestion() {
+    let device = Device::Cpu;
+    let mut bridge = HdcBridge::new(device.clone()).unwrap();
+    bridge.init_mock_db().unwrap();
+
+    let mut wm = WorkingMemory::new(device);
+    
+    let sentences = [
+        "The wolf ate the grandmother",
+        "The grandmother ate the bed",
+        "The wolf ate the bed",
+    ];
+
+    for (i, sentence) in sentences.iter().enumerate() {
+        let t_step = i + 1;
+        let scene = parse_sentence_to_scene(sentence, &bridge).unwrap();
+        wm.append_scene_at_time(&scene, t_step, &bridge).unwrap();
+    }
+
+    let mem = wm.memory_matrix.as_ref().unwrap();
+    assert_eq!(mem.dims(), &[3, 4096]);
+}
+
+#[test]
+fn test_time_traversal() {
+    let device = Device::Cpu;
+    let mut bridge = HdcBridge::new(device.clone()).unwrap();
+    bridge.init_mock_db().unwrap();
+
+    let mut wm = WorkingMemory::new(device);
+    
+    let sentences = [
+        "The wolf ate the grandmother",
+        "The grandmother ate the bed",
+        "The wolf ate the bed",
+    ];
+
+    for (i, sentence) in sentences.iter().enumerate() {
+        let t_step = i + 1;
+        let scene = parse_sentence_to_scene(sentence, &bridge).unwrap();
+        wm.append_scene_at_time(&scene, t_step, &bridge).unwrap();
+    }
+
+    // Query: What was the subject at T_2?
+    let target_role = "subject";
+    let retrieved_cid = resolve_time_query(2, target_role, &wm, &bridge).unwrap();
+    
+    let grandmother_cid = bridge.get_word_cid("grandmother").unwrap();
+    assert_eq!(retrieved_cid, grandmother_cid);
 }

@@ -25,6 +25,7 @@ pub struct HdcBridge {
     pub vocab_vectors: HashMap<String, Tensor>,
     pub role_vectors: HashMap<String, Tensor>,
     pub device: Device,
+    pub t0_vector: Tensor,
 }
 
 impl HdcBridge {
@@ -39,11 +40,14 @@ impl HdcBridge {
             [],
         )?;
         
+        let t0_vector = generate_bipolar_matrix(1, 4096, 3000, &device)?.squeeze(0)?;
+        
         Ok(Self {
             conn,
             vocab_vectors: HashMap::new(),
             role_vectors: HashMap::new(),
             device,
+            t0_vector,
         })
     }
 
@@ -85,6 +89,11 @@ impl HdcBridge {
         }
         None
     }
+
+    pub fn get_time_vector(&self, t_step: usize) -> Result<Tensor, Box<dyn Error>> {
+        let t_vec = crate::hdc::shift(&self.t0_vector, t_step as isize)?;
+        Ok(t_vec)
+    }
 }
 
 pub struct WorkingMemory {
@@ -114,6 +123,12 @@ impl WorkingMemory {
             self.memory_matrix = Some(scene_2d);
         }
         Ok(())
+    }
+
+    pub fn append_scene_at_time(&mut self, scene_vector: &Tensor, t_step: usize, bridge: &HdcBridge) -> Result<(), Box<dyn Error>> {
+        let t_vec = bridge.get_time_vector(t_step)?;
+        let bound_scene = bind(scene_vector, &t_vec)?;
+        self.append_scene(&bound_scene)
     }
 }
 
@@ -197,6 +212,77 @@ pub fn resolve_query(
     
     // Compute cosine similarity of unbound against all vocab vectors
     let vocab_sims = cosine_similarity_matrix(&unbound, &codebook)?;
+    let vocab_argmax = vocab_sims.argmax(0)?;
+    let best_vocab_idx: u32 = vocab_argmax.to_scalar::<u32>()?;
+    
+    let best_cid = cids[best_vocab_idx as usize].clone();
+    Ok(best_cid)
+}
+
+pub fn parse_sentence_to_scene(sentence: &str, bridge: &HdcBridge) -> Result<Tensor, Box<dyn Error>> {
+    let lower = sentence.to_lowercase();
+    let tokens: Vec<&str> = lower.split_whitespace().collect();
+    
+    // Filter stop words
+    let stop_words = ["the", "a", "an", "is", "are", "was", "were"];
+    let mut filtered = Vec::new();
+    for &t in &tokens {
+        let clean = t.trim_matches(|c: char| !c.is_alphanumeric());
+        if !clean.is_empty() && !stop_words.contains(&clean) {
+            filtered.push(clean);
+        }
+    }
+    
+    if filtered.len() < 3 {
+        return Err("Sentence does not contain SVO after filtering".into());
+    }
+    
+    let subject = filtered[0];
+    let verb = filtered[1];
+    let object = filtered[2];
+    
+    let subject_cid = bridge.get_word_cid(subject).ok_or(format!("CID not found for subject: {}", subject))?;
+    let verb_cid = bridge.get_word_cid(verb).ok_or(format!("CID not found for verb: {}", verb))?;
+    let object_cid = bridge.get_word_cid(object).ok_or(format!("CID not found for object: {}", object))?;
+    
+    build_scene(bridge, &subject_cid, &verb_cid, &object_cid)
+}
+
+pub fn resolve_time_query(
+    t_step: usize,
+    target_role: &str,
+    working_memory: &WorkingMemory,
+    bridge: &HdcBridge,
+) -> Result<String, Box<dyn Error>> {
+    let mem = working_memory.memory_matrix.as_ref().ok_or("Memory empty")?;
+    
+    let t_vec = bridge.get_time_vector(t_step)?;
+    
+    // Broadcast t_vec against WorkingMemory using cosine similarity
+    let similarities = cosine_similarity_matrix(&t_vec, mem)?;
+    
+    // Find best matching scene
+    let argmax = similarities.argmax(0)?;
+    let best_idx: u32 = argmax.to_scalar::<u32>()?;
+    let bound_scene = mem.narrow(0, best_idx as usize, 1)?.squeeze(0)?;
+    
+    // Unbind time: Scene = Bound_Scene * t_vec
+    let scene = bind(&bound_scene, &t_vec)?;
+    
+    // Isolate Role: X = Scene * Role_target
+    let role_vector = bridge.role_vectors.get(target_role).ok_or("Role not found")?;
+    let x_unbound = bind(&scene, role_vector)?;
+    
+    // Convert vocab vectors to a 2D codebook tensor for cosine similarity
+    let mut cids = Vec::new();
+    let mut vecs = Vec::new();
+    for (cid, vec) in &bridge.vocab_vectors {
+        cids.push(cid.clone());
+        vecs.push(vec.clone());
+    }
+    
+    let codebook = Tensor::stack(&vecs, 0)?;
+    let vocab_sims = cosine_similarity_matrix(&x_unbound, &codebook)?;
     let vocab_argmax = vocab_sims.argmax(0)?;
     let best_vocab_idx: u32 = vocab_argmax.to_scalar::<u32>()?;
     
