@@ -3,6 +3,8 @@ pub mod config;
 pub mod content;
 pub mod db;
 pub mod error;
+pub mod hdc;
+pub mod hdc_engine;
 pub mod lexicon_import;
 pub mod model;
 pub mod resolver;
